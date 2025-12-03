@@ -3,6 +3,21 @@
 [![Download for Windows](https://img.shields.io/badge/Windows-download-0078D6?logo=windows&logoColor=white)](https://github.com/Mjarzyk/Multi-AI-Wrapper/releases/download/v1.0.0/MultiAICockpit-win32-x64-v1.0.0.zip)
 [![Download for macOS](https://img.shields.io/badge/macOS-download-000000?logo=apple&logoColor=white)](https://github.com/Mjarzyk/Multi-AI-Wrapper/releases/download/v1.0.0/MultiAICockpit-macOS-universal-v1.0.0.zip)
 
+---
+
+## Platform Notes (macOS)
+
+**Passkeys / Touch ID:**  
+macOS builds of the app currently cannot use system passkeys or Touch ID inside the embedded browser.  
+If your account uses a passkey for login, open the service once in Safari or Chrome to complete the sign-in, then return to the app.
+
+**Gemini sign-in / message errors:**  
+Gemini may show “something went wrong” or fail to send messages on macOS when used inside the wrapper.  
+This is due to Electron’s WebView limitations on macOS.  
+Signing into Gemini in Safari first generally resolves the issue.
+
+---
+
 # Multi-AI Wrapper
 
 Multi-AI Wrapper is a lightweight Electron desktop app that puts multiple AI assistants into a single window with simple tabs.
