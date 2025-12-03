@@ -1,3 +1,8 @@
+## Downloads
+
+[![Download for Windows](https://img.shields.io/badge/Windows-download-0078D6?logo=windows&logoColor=white)](https://github.com/Mjarzyk/Multi-AI-Wrapper/releases/download/v1.0.0/MultiAICockpit-win32-x64-v1.0.0.zip)
+[![Download for macOS](https://img.shields.io/badge/macOS-download-000000?logo=apple&logoColor=white)](https://github.com/Mjarzyk/Multi-AI-Wrapper/releases/download/v1.0.0/MultiAICockpit-macOS-universal-v1.0.0.zip)
+
 # Multi-AI Wrapper
 
 Multi-AI Wrapper is a lightweight Electron desktop app that puts multiple AI assistants into a single window with simple tabs.
