@@ -28,9 +28,9 @@ You do **not** need Node.js, npm, or any dev tools to use this app.
 
 ### Windows
 
-1. Download the Windows build ZIP (for example: `MultiAICockpit-win32-x64.zip`).
+1. Download the Windows build ZIP.
    - This may come from GitHub Releases or directly from the author.
-2. Unzip it somewhere convenient (e.g. `C:\Apps\MultiAICockpit`).
+2. Unzip it somewhere convenient.
 3. Inside the unzipped folder, run:
 
    `MultiAICockpit.exe`
@@ -46,9 +46,9 @@ You can pin `MultiAICockpit.exe` to the Start menu or taskbar for quick access.
 
 ### macOS
 
-1. Download the macOS build ZIP (for example: `MultiAICockpit-mac.zip`).
+1. Download the macOS build ZIP.
    - This is typically produced by GitHub Actions and shared with testers.
-2. Unzip it. Inside you’ll see a folder like:
+2. Unzip it. Inside you’ll see a folder:
 
    `MultiAICockpit-darwin-universal/`
 
