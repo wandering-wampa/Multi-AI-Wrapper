@@ -103,9 +103,17 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    // Clean up BrowserViews safely
     for (const key of Object.keys(views)) {
       const v = views[key];
-      if (v && !v.isDestroyed()) v.destroy();
+      if (v && v.webContents && !v.webContents.isDestroyed()) {
+        try {
+          v.destroy();
+        } catch {
+          // ignore any cleanup errors
+        }
+      }
+      delete views[key];
     }
     activeModel = null;
     mainWindow = null;
