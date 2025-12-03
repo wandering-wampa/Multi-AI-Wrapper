@@ -19,6 +19,12 @@ Supported services:
 
 ---
 
+## Screenshot
+
+![Screenshot](assets/screenshot.png)
+
+---
+
 ## What it does
 
 - **Unified UI** – One app window with tabs for each AI.
