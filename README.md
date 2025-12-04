@@ -163,7 +163,14 @@ This is an early, experimental tool intended for personal use and tinkering. Exp
 
 ### Planned improvements
 
-- Keyboard shortcuts for tab switching (e.g. Ctrl+1 / Cmd+1)
 - ~~Prebuilt releases for Windows and macOS attached to GitHub Releases~~
-- Optional “always on top” mode
+- Keyboard shortcuts for tab switching (e.g. Ctrl+1 / Cmd+1)
+- Unified Search Across Tabs: Let users type a query once and broadcast it to all tabs
+- Customizable Themes: Dark/light modes, plus user-defined color schemes for each AI tab
+- Pinned Tabs / Favorites: Allow users to reorder or pin their most-used AI assistants
+- Note-Taking Sidebar: A lightweight markdown editor alongside AI tabs for jotting down insights
+- Export Options: One-click export of selected AI responses to Markdown, PDF, or plain text
+- Cross-AI Comparison Mode: A split-screen or grid view showing multiple assistants’ answers simultaneously
+- Offline Caching: Cache recent conversations locally for quick access even without internet
+- Resource Monitoring: Show memory/CPU usage per tab to help users manage heavy sessions
 
