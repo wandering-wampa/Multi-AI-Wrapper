@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, Menu } = require("electron");
+const { app, BrowserWindow, BrowserView, ipcMain, Menu, shell } = require("electron");
 const path = require("path");
 
 let mainWindow;
@@ -38,9 +38,23 @@ function ensureView(modelName) {
   // Load the provider URL
   view.webContents.loadURL(url);
 
+  // Open external links in default system browser
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (
+      url.startsWith("https://chatgpt.com/") ||
+      url.startsWith("https://claude.ai/") ||
+      url.startsWith("https://copilot.microsoft.com/") ||
+      url.startsWith("https://gemini.google.com/") ||
+      url.startsWith("https://www.perplexity.ai/")
+    ) {
+      return { action: "allow" };
+    }
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+
   // Attach a basic right-click context menu
   view.webContents.on("context-menu", (event, params) => {
-    // Standard text-edit menu; roles auto-enable/disable based on context
     const template = [
       { role: "undo" },
       { role: "redo" },
@@ -107,10 +121,9 @@ function createWindow() {
     }
   });
 
-  // Load UI (top bar and tabs)
   mainWindow.loadFile("index.html");
 
-  // Lazy preload: only create ChatGPT on startup
+  // Lazy preload: only ChatGPT on startup
   activeModel = "chatgpt";
   const initialView = ensureView(activeModel);
   if (initialView) {
@@ -123,15 +136,12 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
-    // Clean up BrowserViews safely
     for (const key of Object.keys(views)) {
       const v = views[key];
       if (v && v.webContents && !v.webContents.isDestroyed()) {
         try {
           v.destroy();
-        } catch {
-          // ignore any cleanup errors
-        }
+        } catch {}
       }
       delete views[key];
     }
@@ -143,7 +153,7 @@ function createWindow() {
 // Renderer requests tab switch
 ipcMain.on("switch-model", (event, modelName) => {
   if (!MODEL_URLS[modelName]) return;
-  if (activeModel === modelName) return; // already active
+  if (activeModel === modelName) return;
   showView(modelName);
 });
 
