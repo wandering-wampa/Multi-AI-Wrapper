@@ -167,7 +167,7 @@ This is an early, experimental tool intended for personal use and tinkering. Exp
 - ~~Keyboard shortcuts for tab switching (e.g. Ctrl+1 / Cmd+1 and Ctrl+Teb/Ctrl+Shift+Tab)~~
 - Unified Search Across Tabs: Let users type a query once and broadcast it to all tabs
 - Customizable Themes: Dark/light modes, plus user-defined color schemes for each AI tab
-- Pinned Tabs / Favorites: Allow users to reorder or pin their most-used AI assistants
+- ~~Allow users to reorder the AI assistants, and tab order persists after relaunch~~
 - Note-Taking Sidebar: A lightweight markdown editor alongside AI tabs for jotting down insights
 - Export Options: One-click export of selected AI responses to Markdown, PDF, or plain text
 - Cross-AI Comparison Mode: A split-screen or grid view showing multiple assistants’ answers simultaneously
