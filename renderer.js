@@ -6,73 +6,216 @@ const LABEL_TO_MODEL = {
   "Perplexity": "perplexity"
 };
 
-function injectActiveTabStyles() {
-  // This guarantees a visible "blue active tab" even if your CSS isn't wired to our class names
+let lastActiveModel = "chatgpt";
+let dragSrcBtn = null;
+
+// NEW: prevent overwriting persisted order on startup
+let haveAppliedOrderFromMain = false;
+let orderFallbackTimer = null;
+
+function injectStyles() {
+  if (document.getElementById("multi-ai-style")) return;
+
   const style = document.createElement("style");
-  style.id = "multi-ai-active-tab-style";
+  style.id = "multi-ai-style";
   style.textContent = `
+    /* Force a clearly-visible active tab regardless of existing CSS */
     .multi-ai-tab-active {
       background: #2f6feb !important;
-      color: #ffffff !important;
       border-color: #2f6feb !important;
+      color: #ffffff !important;
+      opacity: 1 !important;
+      filter: none !important;
+    }
+    .multi-ai-tab-active * {
+      color: #ffffff !important;
+      opacity: 1 !important;
+      filter: none !important;
+    }
+
+    .multi-ai-tab-dragging {
+      opacity: 0.75 !important;
+      user-select: none !important;
+    }
+
+    .multi-ai-tab-drop-target {
+      outline: 2px dashed rgba(255,255,255,0.35);
+      outline-offset: 2px;
+    }
+
+    /* Prevent text selection glitches while dragging */
+    button {
+      user-select: none;
+      -webkit-user-select: none;
     }
   `;
   document.head.appendChild(style);
 }
 
 function getTabButtons() {
-  // Try common containers first, then fall back to all buttons
-  const candidates =
-    document.querySelectorAll("[data-model]")?.length
-      ? Array.from(document.querySelectorAll("[data-model]"))
-      : Array.from(document.querySelectorAll("button"));
-
-  // Keep only the buttons that match our known tab labels
-  return candidates.filter((btn) => {
+  return Array.from(document.querySelectorAll("button")).filter((btn) => {
     const label = (btn.textContent || "").trim();
     return !!LABEL_TO_MODEL[label];
   });
 }
 
+function buttonModel(btn) {
+  const label = (btn.textContent || "").trim();
+  return LABEL_TO_MODEL[label] || null;
+}
+
 function setActiveTabUI(modelName) {
-  const buttons = getTabButtons();
-
-  buttons.forEach((btn) => {
-    const label = (btn.textContent || "").trim();
-    const btnModel = LABEL_TO_MODEL[label];
-    const isActive = btnModel === modelName;
-
-    // Hard guarantee: apply our own class that makes the button blue
-    btn.classList.toggle("multi-ai-tab-active", isActive);
+  lastActiveModel = modelName;
+  getTabButtons().forEach((btn) => {
+    btn.classList.toggle("multi-ai-tab-active", buttonModel(btn) === modelName);
   });
 }
 
-function wireTabClicks() {
+function swapButtons(a, b) {
+  if (!a || !b || a === b) return;
+
+  const parent = a.parentNode;
+  if (!parent || parent !== b.parentNode) return;
+
+  // Robust swap that preserves order for non-adjacent nodes
+  const aNext = a.nextSibling;
+  const bNext = b.nextSibling;
+
+  if (aNext === b) {
+    parent.insertBefore(b, a);
+    return;
+  }
+  if (bNext === a) {
+    parent.insertBefore(a, b);
+    return;
+  }
+
+  parent.insertBefore(a, bNext);
+  parent.insertBefore(b, aNext);
+}
+
+function emitOrderToMain() {
+  const order = getTabButtons().map(buttonModel).filter(Boolean);
+  window.electronAPI.setModelOrder(order);
+}
+
+function clearDropTargets() {
+  getTabButtons().forEach((b) => b.classList.remove("multi-ai-tab-drop-target"));
+}
+
+function wireTabsOnce() {
   const buttons = getTabButtons();
 
   buttons.forEach((btn) => {
-    const label = (btn.textContent || "").trim();
-    const modelName = LABEL_TO_MODEL[label];
+    const modelName = buttonModel(btn);
     if (!modelName) return;
 
-    btn.addEventListener("click", () => {
-      window.electronAPI.switchModel(modelName);
+    // IMPORTANT: prevent duplicate listeners (this was causing lag)
+    if (btn.dataset.multiAiWired === "1") return;
+    btn.dataset.multiAiWired = "1";
 
-      // Immediate visual feedback (main will also broadcast the official state)
+    btn.setAttribute("draggable", "true");
+
+    // CLICK
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.electronAPI.switchModel(modelName);
       setActiveTabUI(modelName);
+    });
+
+    // DRAG START
+    btn.addEventListener("dragstart", (e) => {
+      dragSrcBtn = btn;
+      btn.classList.add("multi-ai-tab-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", modelName);
+    });
+
+    // DRAG OVER
+    btn.addEventListener("dragover", (e) => {
+      if (!dragSrcBtn || dragSrcBtn === btn) return;
+      e.preventDefault();
+      clearDropTargets();
+      btn.classList.add("multi-ai-tab-drop-target");
+      e.dataTransfer.dropEffect = "move";
+    });
+
+    // DRAG LEAVE
+    btn.addEventListener("dragleave", () => {
+      btn.classList.remove("multi-ai-tab-drop-target");
+    });
+
+    // DROP = SWAP
+    btn.addEventListener("drop", (e) => {
+      e.preventDefault();
+      btn.classList.remove("multi-ai-tab-drop-target");
+
+      if (!dragSrcBtn || dragSrcBtn === btn) return;
+
+      swapButtons(dragSrcBtn, btn);
+
+      // Persist new order immediately
+      emitOrderToMain();
+      setActiveTabUI(lastActiveModel);
+    });
+
+    // DRAG END
+    btn.addEventListener("dragend", () => {
+      btn.classList.remove("multi-ai-tab-dragging");
+      clearDropTargets();
+      dragSrcBtn = null;
     });
   });
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  injectActiveTabStyles();
-  wireTabClicks();
-
-  // Default highlight at startup (main should also broadcast, but this prevents "no blue" state)
-  setActiveTabUI("chatgpt");
-});
-
-// Main-process broadcasts (hotkeys / programmatic switches)
+// MAIN → renderer sync
 window.electronAPI.onActiveModelChanged((modelName) => {
   setActiveTabUI(modelName);
+});
+
+// MAIN → renderer persisted order
+window.electronAPI.onModelOrderChanged((order) => {
+  if (!Array.isArray(order)) return;
+
+  haveAppliedOrderFromMain = true;
+  if (orderFallbackTimer) {
+    clearTimeout(orderFallbackTimer);
+    orderFallbackTimer = null;
+  }
+
+  const buttons = getTabButtons();
+  if (!buttons.length) return;
+
+  const parent = buttons[0].parentNode;
+  if (!parent) return;
+
+  const map = new Map(buttons.map((b) => [buttonModel(b), b]));
+
+  order.forEach((model) => {
+    const btn = map.get(model);
+    if (btn) parent.appendChild(btn);
+  });
+
+  // After reorder, ensure listeners exist (but only once)
+  wireTabsOnce();
+  setActiveTabUI(lastActiveModel);
+
+  // IMPORTANT: do NOT immediately emit here.
+  // Main already has this order; re-sending can create loops in some setups.
+});
+
+window.addEventListener("DOMContentLoaded", () => {
+  injectStyles();
+  wireTabsOnce();
+  setActiveTabUI(lastActiveModel);
+
+  // CRITICAL CHANGE:
+  // Do NOT send order to main immediately, or you'll overwrite saved order
+  // with the default DOM order at startup.
+  orderFallbackTimer = setTimeout(() => {
+    if (!haveAppliedOrderFromMain) {
+      // first run / no settings yet
+      emitOrderToMain();
+    }
+  }, 800);
 });
