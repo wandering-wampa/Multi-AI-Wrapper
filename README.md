@@ -18,6 +18,7 @@ Supported services:
 
 [![Download for Windows](https://img.shields.io/badge/Windows-download-0078D6?logo=windows&logoColor=white)](https://github.com/Wandering-Wampa/Multi-AI-Wrapper/releases/latest)
 [![Download for macOS](https://img.shields.io/badge/macOS-download-000000?logo=apple&logoColor=white)](https://github.com/Wandering-Wampa/Multi-AI-Wrapper/releases/latest)
+[![Download for Linux](https://img.shields.io/badge/Linux-download-FCC624?logo=linux&logoColor=black)](https://github.com/Wandering-Wampa/Multi-AI-Wrapper/releases/latest)
 
 ---
 
