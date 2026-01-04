@@ -27,9 +27,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("app-settings-changed", (_event, payload) => callback(payload));
   },
 
-  // models catalog (Settings UI / dynamic tabs)
+  // models catalog (used by Settings UI + main renderer tabs)
   getAppModels: () => ipcRenderer.invoke("appModels:get"),
-  addAppModel: (model) => ipcRenderer.invoke("appModels:add", model),
+  addAppModel: (payload) => ipcRenderer.invoke("appModels:add", payload),
   deleteAppModel: (id) => ipcRenderer.invoke("appModels:delete", { id }),
   onAppModelsChanged: (callback) => {
     ipcRenderer.on("app-models-changed", (_event, payload) => callback(payload));

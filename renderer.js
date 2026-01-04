@@ -1,13 +1,5 @@
 // renderer.js
 
-const MODEL_LABELS = {
-  chatgpt: "ChatGPT",
-  claude: "Claude",
-  copilot: "Copilot",
-  gemini: "Gemini",
-  perplexity: "Perplexity"
-};
-
 let activeModel = null;
 
 // load states keyed by model
@@ -17,6 +9,12 @@ const modelStates = Object.create(null);
 // Behavior settings (defaults match main.js)
 let confirmBeforeStop = false;
 let hardReloadOnRefresh = false;
+
+// Models catalog cache (id -> { id, name, url, builtIn })
+let modelsById = Object.create(null);
+
+// last tab order we rendered (array of model ids)
+let lastTabOrder = [];
 
 // -----------------------------
 // APP SETTINGS (Behavior flags)
@@ -49,72 +47,8 @@ function initAppSettings() {
 // THEME
 // -----------------------------
 
-let themeShieldEl = null;
-let themeShieldTimer = null;
-
-function getTopBarHeight() {
-  const bar = document.getElementById("top-bar");
-  if (!bar) return 48;
-  const h = Math.max(0, Math.round(bar.getBoundingClientRect().height));
-  return h || 48;
-}
-
-function ensureThemeShield() {
-  if (themeShieldEl && document.body.contains(themeShieldEl)) return themeShieldEl;
-
-  const el = document.createElement("div");
-  el.id = "theme-shield";
-  el.style.position = "fixed";
-  el.style.left = "0";
-  el.style.right = "0";
-  el.style.bottom = "0";
-  el.style.top = `${getTopBarHeight()}px`;
-  el.style.background = "var(--bg)";
-  el.style.pointerEvents = "none";
-  el.style.zIndex = "9999";
-  el.style.opacity = "0";
-  el.style.display = "none";
-  el.style.transition = "opacity 120ms linear";
-
-  document.body.appendChild(el);
-  themeShieldEl = el;
-  return el;
-}
-
-// Briefly cover the BrowserView area so the theme switch feels instant even if the BrowserView repaints late.
-function flashThemeShield() {
-  const el = ensureThemeShield();
-
-  // keep it aligned if bar height changes
-  el.style.top = `${getTopBarHeight()}px`;
-
-  if (themeShieldTimer) {
-    clearTimeout(themeShieldTimer);
-    themeShieldTimer = null;
-  }
-
-  el.style.display = "block";
-  // force a layout so the transition reliably runs
-  // eslint-disable-next-line no-unused-expressions
-  el.offsetHeight;
-
-  el.style.opacity = "1";
-
-  // hide shortly after; tweak if you want more/less masking
-  themeShieldTimer = setTimeout(() => {
-    el.style.opacity = "0";
-    themeShieldTimer = setTimeout(() => {
-      el.style.display = "none";
-      themeShieldTimer = null;
-    }, 140);
-  }, 160);
-}
-
 function applyThemeToDOM(payload) {
   // main sends: { source: "system"|"light"|"dark", shouldUseDarkColors: boolean }
-  // Show shield BEFORE flipping vars so the content region never "lags" visibly.
-  flashThemeShield();
-
   const effective = payload && payload.shouldUseDarkColors ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", effective);
 }
@@ -143,6 +77,7 @@ function initThemeToggle() {
       }
 
       const updated = await window.electronAPI.setTheme(nextSource);
+      applyThemeToDOM(updated);
     } catch {}
   });
 
@@ -167,6 +102,49 @@ function initSettingsButton() {
 }
 
 // -----------------------------
+// MODELS CATALOG
+// -----------------------------
+
+function buildModelsById(payload) {
+  const map = Object.create(null);
+  const list = Array.isArray(payload?.models) ? payload.models : [];
+  for (const m of list) {
+    if (!m || typeof m !== "object") continue;
+    if (typeof m.id !== "string" || !m.id) continue;
+    map[m.id] = m;
+  }
+  return map;
+}
+
+function computeVisibleOrderFromModelsPayload(payload) {
+  const order = Array.isArray(payload?.modelOrder) ? payload.modelOrder : [];
+  const enabled = new Set(Array.isArray(payload?.enabledModels) ? payload.enabledModels : []);
+  const byId = buildModelsById(payload);
+
+  // visible tabs = enabled models, in modelOrder
+  const out = [];
+  const seen = new Set();
+
+  for (const id of order) {
+    if (!byId[id]) continue;
+    if (!enabled.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+
+  // append any enabled models missing from order
+  for (const id of Object.keys(byId)) {
+    if (!enabled.has(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+
+  return out;
+}
+
+// -----------------------------
 // TABS + DOTS
 // -----------------------------
 
@@ -185,11 +163,19 @@ function stateToDotClass(state) {
   return "";
 }
 
+function getModelLabel(modelId) {
+  const m = modelsById[modelId];
+  if (m && typeof m.name === "string" && m.name.trim()) return m.name.trim();
+  return modelId;
+}
+
 function renderTabs(order) {
   const tabsEl = document.getElementById("tabs");
   tabsEl.innerHTML = "";
 
-  for (const model of order) {
+  lastTabOrder = Array.isArray(order) ? order.slice() : [];
+
+  for (const model of lastTabOrder) {
     const btn = document.createElement("button");
     btn.className = "tab-button";
     btn.dataset.model = model;
@@ -199,7 +185,7 @@ function renderTabs(order) {
     dot.dataset.model = model;
 
     const label = document.createElement("span");
-    label.textContent = MODEL_LABELS[model] || model;
+    label.textContent = getModelLabel(model);
 
     btn.appendChild(dot);
     btn.appendChild(label);
@@ -310,6 +296,7 @@ function wireIPC() {
     updateActiveTabUI(activeModel);
   });
 
+  // This is the visible (enabled) order from main
   window.electronAPI.onModelOrderChanged((order) => {
     renderTabs(order);
   });
@@ -336,14 +323,39 @@ function wireIPC() {
       updateAllDots();
     }
   });
+
+  // Update labels when the catalog changes
+  window.electronAPI.onAppModelsChanged((payload) => {
+    modelsById = buildModelsById(payload);
+
+    // If we already have a visible order from main, re-render tabs to update labels
+    if (lastTabOrder.length) {
+      renderTabs(lastTabOrder);
+      return;
+    }
+
+    // Fallback: derive a visible order from the models payload
+    const visible = computeVisibleOrderFromModelsPayload(payload);
+    if (visible.length) renderTabs(visible);
+  });
 }
 
 // -----------------------------
 // BOOTSTRAP
 // -----------------------------
 
-document.addEventListener("DOMContentLoaded", () => {
-  renderTabs(["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
+document.addEventListener("DOMContentLoaded", async () => {
+  // Load models first so labels are correct even before model-order-changed arrives.
+  try {
+    const payload = await window.electronAPI.getAppModels();
+    modelsById = buildModelsById(payload);
+
+    const visible = computeVisibleOrderFromModelsPayload(payload);
+    if (visible.length) renderTabs(visible);
+  } catch {
+    // last-resort fallback (should be rare)
+    renderTabs(["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
+  }
 
   initAppSettings();
 
