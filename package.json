@@ -1,6 +1,6 @@
 {
   "name": "multi-ai-cockpit",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "Local Electron wrapper for ChatGPT, Claude, Copilot, Gemini, and Perplexity in one UI",
   "main": "main.js",
   "scripts": {

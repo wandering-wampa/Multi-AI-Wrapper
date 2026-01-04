@@ -5,14 +5,36 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   setModelOrder: (order) => ipcRenderer.send("set-model-order", order),
 
+  // kept for compatibility (UI no longer needs it)
   refreshActive: (hard = false) => ipcRenderer.send("refresh-active", { hard: !!hard }),
 
   refreshModel: (modelName, hard = false) =>
     ipcRenderer.send("refresh-model", { modelName, hard: !!hard }),
 
-  stopModel: (modelName) =>
-    ipcRenderer.send("stop-model", { modelName }),
+  stopModel: (modelName) => ipcRenderer.send("stop-model", { modelName }),
 
+  // theme
+  getTheme: () => ipcRenderer.invoke("theme:get"),
+  setTheme: (source) => ipcRenderer.invoke("theme:set", source),
+  onThemeChanged: (callback) => {
+    ipcRenderer.on("theme-changed", (_event, payload) => callback(payload));
+  },
+
+  // app settings (Settings UI)
+  getAppSettings: () => ipcRenderer.invoke("appSettings:get"),
+  setAppSettings: (patch) => ipcRenderer.invoke("appSettings:set", patch),
+  onAppSettingsChanged: (callback) => {
+    ipcRenderer.on("app-settings-changed", (_event, payload) => callback(payload));
+  },
+
+  // about/info
+  getAppInfo: () => ipcRenderer.invoke("appInfo:get"),
+
+  // settings window
+  openSettings: () => ipcRenderer.invoke("settings:open"),
+  closeSettings: () => ipcRenderer.send("settings:close"),
+
+  // events
   onActiveModelChanged: (callback) => {
     ipcRenderer.on("active-model-changed", (_event, modelName) => callback(modelName));
   },

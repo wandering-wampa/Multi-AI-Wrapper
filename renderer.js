@@ -1,357 +1,292 @@
-let lastActiveModel = "chatgpt";
-let dragSrcBtn = null;
+// renderer.js
 
-// prevent overwriting persisted order on startup
-let haveAppliedOrderFromMain = false;
-let orderFallbackTimer = null;
+const MODEL_LABELS = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  copilot: "Copilot",
+  gemini: "Gemini",
+  perplexity: "Perplexity"
+};
 
-// Track per-model UI state: { initialized: bool, loading: bool, error: bool }
-const modelState = Object.create(null);
+let activeModel = null;
 
-function injectStyles() {
-  if (document.getElementById("multi-ai-style")) return;
+// load states keyed by model
+// { [model]: { initialized: boolean, loading: boolean, error: boolean } }
+const modelStates = Object.create(null);
 
-  const style = document.createElement("style");
-  style.id = "multi-ai-style";
-  style.textContent = `
-    .multi-ai-tab-active {
-      background: #2f6feb !important;
-      border-color: #2f6feb !important;
-      color: #ffffff !important;
-      opacity: 1 !important;
-      filter: none !important;
-    }
-    .multi-ai-tab-active * {
-      color: #ffffff !important;
-      opacity: 1 !important;
-      filter: none !important;
-    }
+// Behavior settings (defaults match main.js)
+let confirmBeforeStop = false;
+let hardReloadOnRefresh = false;
 
-    .multi-ai-tab-dragging {
-      opacity: 0.75 !important;
-      user-select: none !important;
-    }
+// -----------------------------
+// APP SETTINGS (Behavior flags)
+// -----------------------------
 
-    .multi-ai-tab-drop-target {
-      outline: 2px dashed rgba(255,255,255,0.35);
-      outline-offset: 2px;
-    }
+function applyAppSettingsToRenderer(settings) {
+  if (!settings || typeof settings !== "object") return;
 
-    button {
-      user-select: none;
-      -webkit-user-select: none;
-    }
-
-    /* Status indicator */
-    .multi-ai-tab-status {
-      width: 10px;
-      height: 10px;
-      margin-left: 8px;
-      display: inline-block;
-      border-radius: 999px;
-      opacity: 0.90;
-      flex: 0 0 auto;
-      cursor: pointer;
-    }
-
-    /* Hover affordance (subtle) */
-    button:hover .multi-ai-tab-status {
-      box-shadow: 0 0 0 3px rgba(255,255,255,0.08);
-      opacity: 1;
-    }
-
-    @keyframes multiAiSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-    .multi-ai-uninit .multi-ai-tab-status { display: none; }
-
-    .multi-ai-loading .multi-ai-tab-status {
-      display: inline-block;
-      border: 2px solid rgba(255,255,255,0.35);
-      border-top-color: rgba(255,255,255,0.95);
-      background: transparent;
-      animation: multiAiSpin 0.8s linear infinite;
-    }
-
-    .multi-ai-error .multi-ai-tab-status {
-      display: inline-block;
-      background: #ef4444;
-      border: 1px solid rgba(0,0,0,0.25);
-    }
-
-    .multi-ai-ready .multi-ai-tab-status {
-      display: inline-block;
-      background: #22c55e;
-      border: 1px solid rgba(0,0,0,0.25);
-    }
-  `;
-  document.head.appendChild(style);
+  if (typeof settings.confirmBeforeStop === "boolean") {
+    confirmBeforeStop = settings.confirmBeforeStop;
+  }
+  if (typeof settings.hardReloadOnRefresh === "boolean") {
+    hardReloadOnRefresh = settings.hardReloadOnRefresh;
+  }
 }
 
-function getTabButtons() {
-  // identity must come from data-model
-  return Array.from(document.querySelectorAll("button.tab-button[data-model]"));
-}
+function initAppSettings() {
+  // initial load
+  window.electronAPI.getAppSettings()
+    .then(applyAppSettingsToRenderer)
+    .catch(() => {});
 
-function buttonModel(btn) {
-  return (btn.dataset && btn.dataset.model) ? btn.dataset.model : null;
-}
-
-function setActiveTabUI(modelName) {
-  lastActiveModel = modelName;
-  getTabButtons().forEach((btn) => {
-    btn.classList.toggle("multi-ai-tab-active", buttonModel(btn) === modelName);
+  // live updates (e.g., toggled inside Settings window)
+  window.electronAPI.onAppSettingsChanged((settings) => {
+    applyAppSettingsToRenderer(settings);
   });
 }
 
-function swapButtons(a, b) {
-  if (!a || !b || a === b) return;
+// -----------------------------
+// THEME
+// -----------------------------
 
-  const parent = a.parentNode;
-  if (!parent || parent !== b.parentNode) return;
-
-  const aNext = a.nextSibling;
-  const bNext = b.nextSibling;
-
-  if (aNext === b) {
-    parent.insertBefore(b, a);
-    return;
-  }
-  if (bNext === a) {
-    parent.insertBefore(a, b);
-    return;
-  }
-
-  parent.insertBefore(a, bNext);
-  parent.insertBefore(b, aNext);
+function applyThemeToDOM(payload) {
+  // main sends: { source: "system"|"light"|"dark", shouldUseDarkColors: boolean }
+  const effective = payload && payload.shouldUseDarkColors ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", effective);
 }
 
-function emitOrderToMain() {
-  const order = getTabButtons().map(buttonModel).filter(Boolean);
-  window.electronAPI.setModelOrder(order);
-}
-
-function clearDropTargets() {
-  getTabButtons().forEach((b) => b.classList.remove("multi-ai-tab-drop-target"));
-}
-
-function ensureTabWidgets(btn, modelName) {
+function initThemeToggle() {
+  const btn = document.getElementById("theme-toggle");
   if (!btn) return;
 
-  let status = btn.querySelector(".multi-ai-tab-status");
-  if (!status) {
-    status = document.createElement("span");
-    status.className = "multi-ai-tab-status";
-    btn.appendChild(status);
-  }
+  // initial paint
+  window.electronAPI.getTheme()
+    .then(applyThemeToDOM)
+    .catch(() => document.documentElement.setAttribute("data-theme", "dark"));
 
-  // Wire dot click once
-  if (status.dataset.multiAiWired !== "1") {
-    status.dataset.multiAiWired = "1";
+  btn.addEventListener("click", async () => {
+    try {
+      const current = await window.electronAPI.getTheme();
 
-    status.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const s = modelState[modelName] || { initialized: false, loading: false, error: false };
-
-      // Option B behavior:
-      // - spinner (loading) click => stop loading
-      // - green/red click => refresh
-      // - shift-click => hard refresh (ignore cache)
-      if (!s.initialized) return;
-
-      if (s.loading) {
-        window.electronAPI.stopModel(modelName);
-        return;
+      // Toggle behavior:
+      // - if currently system: flip opposite of effective OS theme to force override
+      // - if currently light/dark: flip to the other
+      let nextSource;
+      if (current.source === "system") {
+        nextSource = current.shouldUseDarkColors ? "light" : "dark";
+      } else {
+        nextSource = current.source === "dark" ? "light" : "dark";
       }
 
-      const hard = !!e.shiftKey;
-      window.electronAPI.refreshModel(modelName, hard);
-    });
-  }
+      const updated = await window.electronAPI.setTheme(nextSource);
+      applyThemeToDOM(updated);
+    } catch {}
+  });
 
-  applyModelStateToButton(btn, modelName);
-}
-
-function applyModelStateToButton(btn, modelName) {
-  const s = modelState[modelName] || {
-    initialized: false,
-    loading: false,
-    error: false
-  };
-
-  btn.classList.remove("multi-ai-uninit", "multi-ai-loading", "multi-ai-error", "multi-ai-ready");
-
-  // Tooltip updates based on state
-  const status = btn.querySelector(".multi-ai-tab-status");
-  if (status) {
-    if (!s.initialized) status.title = "";
-    else if (s.loading) status.title = "Stop loading";
-    else if (s.error) status.title = "Reload (Shift = hard reload)";
-    else status.title = "Reload (Shift = hard reload)";
-  }
-
-  if (!s.initialized) {
-    btn.classList.add("multi-ai-uninit");
-    return;
-  }
-
-  if (s.loading) btn.classList.add("multi-ai-loading");
-  else if (s.error) btn.classList.add("multi-ai-error");
-  else btn.classList.add("multi-ai-ready");
-}
-
-function updateModelState(modelName, state) {
-  if (!modelName) return;
-
-  const prev = modelState[modelName] || {};
-  modelState[modelName] = {
-    initialized: !!(state && (state.initialized ?? prev.initialized)),
-    loading: !!(state && state.loading),
-    error: !!(state && state.error)
-  };
-
-  getTabButtons().forEach((btn) => {
-    if (buttonModel(btn) === modelName) {
-      ensureTabWidgets(btn, modelName);
-    }
+  window.electronAPI.onThemeChanged((payload) => {
+    applyThemeToDOM(payload);
   });
 }
 
-function wireTabsOnce() {
-  const buttons = getTabButtons();
+// -----------------------------
+// SETTINGS BUTTON
+// -----------------------------
 
-  buttons.forEach((btn) => {
-    const modelName = buttonModel(btn);
-    if (!modelName) return;
+function initSettingsButton() {
+  const btn = document.getElementById("settings-button");
+  if (!btn) return;
 
-    if (btn.dataset.multiAiWired === "1") {
-      ensureTabWidgets(btn, modelName);
-      return;
-    }
-    btn.dataset.multiAiWired = "1";
+  btn.addEventListener("click", async () => {
+    try {
+      await window.electronAPI.openSettings();
+    } catch {}
+  });
+}
 
-    btn.setAttribute("draggable", "true");
-    ensureTabWidgets(btn, modelName);
+// -----------------------------
+// TABS + DOTS
+// -----------------------------
 
-    // CLICK: switch model
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      window.electronAPI.switchModel(modelName);
-      setActiveTabUI(modelName);
+function ensureState(model) {
+  if (!modelStates[model]) {
+    modelStates[model] = { initialized: false, loading: false, error: false };
+  }
+  return modelStates[model];
+}
+
+function stateToDotClass(state) {
+  if (!state) return "";
+  if (state.error) return "error";
+  if (state.loading) return "loading";
+  if (state.initialized) return "ready";
+  return "";
+}
+
+function renderTabs(order) {
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.innerHTML = "";
+
+  for (const model of order) {
+    const btn = document.createElement("button");
+    btn.className = "tab-button";
+    btn.dataset.model = model;
+
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    dot.dataset.model = model;
+
+    const label = document.createElement("span");
+    label.textContent = MODEL_LABELS[model] || model;
+
+    btn.appendChild(dot);
+    btn.appendChild(label);
+
+    btn.addEventListener("click", () => {
+      window.electronAPI.switchModel(model);
     });
 
-    // DRAG START
+    // drag reorder
+    btn.draggable = true;
+
     btn.addEventListener("dragstart", (e) => {
-      dragSrcBtn = btn;
-      btn.classList.add("multi-ai-tab-dragging");
+      e.dataTransfer.setData("text/plain", model);
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", modelName);
     });
 
-    // DRAG OVER
     btn.addEventListener("dragover", (e) => {
-      if (!dragSrcBtn || dragSrcBtn === btn) return;
       e.preventDefault();
-      clearDropTargets();
-      btn.classList.add("multi-ai-tab-drop-target");
       e.dataTransfer.dropEffect = "move";
     });
 
-    // DRAG LEAVE
-    btn.addEventListener("dragleave", () => {
-      btn.classList.remove("multi-ai-tab-drop-target");
-    });
-
-    // DROP
     btn.addEventListener("drop", (e) => {
       e.preventDefault();
-      btn.classList.remove("multi-ai-tab-drop-target");
+      const fromModel = e.dataTransfer.getData("text/plain");
+      const toModel = model;
 
-      if (!dragSrcBtn || dragSrcBtn === btn) return;
+      if (!fromModel || fromModel === toModel) return;
 
-      swapButtons(dragSrcBtn, btn);
-      emitOrderToMain();
-      setActiveTabUI(lastActiveModel);
+      const currentOrder = Array.from(tabsEl.querySelectorAll(".tab-button")).map(
+        (b) => b.dataset.model
+      );
+
+      const fromIdx = currentOrder.indexOf(fromModel);
+      const toIdx = currentOrder.indexOf(toModel);
+      if (fromIdx < 0 || toIdx < 0) return;
+
+      currentOrder.splice(fromIdx, 1);
+      currentOrder.splice(toIdx, 0, fromModel);
+
+      window.electronAPI.setModelOrder(currentOrder);
     });
 
-    // DRAG END
-    btn.addEventListener("dragend", () => {
-      btn.classList.remove("multi-ai-tab-dragging");
-      clearDropTargets();
-      dragSrcBtn = null;
-    });
+    tabsEl.appendChild(btn);
+  }
+
+  updateActiveTabUI(activeModel);
+  updateAllDots();
+}
+
+function updateActiveTabUI(model) {
+  const buttons = document.querySelectorAll(".tab-button");
+  buttons.forEach((b) => {
+    b.classList.toggle("active", b.dataset.model === model);
   });
 }
 
-// MAIN -> renderer sync
-window.electronAPI.onActiveModelChanged((modelName) => {
-  setActiveTabUI(modelName);
-});
+function updateDot(model) {
+  const dot = document.querySelector(`.status-dot[data-model="${model}"]`);
+  if (!dot) return;
 
-// MAIN -> renderer persisted order
-window.electronAPI.onModelOrderChanged((order) => {
-  if (!Array.isArray(order)) return;
+  const state = ensureState(model);
 
-  haveAppliedOrderFromMain = true;
-  if (orderFallbackTimer) {
-    clearTimeout(orderFallbackTimer);
-    orderFallbackTimer = null;
+  dot.classList.remove("loading", "ready", "error");
+  const cls = stateToDotClass(state);
+  if (cls) dot.classList.add(cls);
+}
+
+function updateAllDots() {
+  for (const el of document.querySelectorAll(".status-dot")) {
+    updateDot(el.dataset.model);
   }
+}
 
-  const buttons = getTabButtons();
-  if (!buttons.length) return;
+function wireDotClicks() {
+  document.addEventListener("click", (e) => {
+    const dot =
+      e.target && e.target.classList && e.target.classList.contains("status-dot")
+        ? e.target
+        : null;
 
-  const parent = buttons[0].parentNode;
-  if (!parent) return;
+    if (!dot) return;
 
-  const map = new Map(buttons.map((b) => [buttonModel(b), b]));
+    const model = dot.dataset.model;
+    if (!model) return;
 
-  order.forEach((model) => {
-    const btn = map.get(model);
-    if (btn) parent.appendChild(btn);
-  });
+    const state = ensureState(model);
 
-  wireTabsOnce();
-  setActiveTabUI(lastActiveModel);
-});
+    // If loading: stop (optionally confirm)
+    if (state.loading) {
+      if (confirmBeforeStop) {
+        const ok = window.confirm("Stop loading this model?");
+        if (!ok) return;
+      }
 
-// MAIN -> per-model loading/error state
-window.electronAPI.onModelLoadStateChanged((state) => {
-  if (!state || !state.model) return;
-  updateModelState(state.model, state);
-});
+      window.electronAPI.stopModel(model);
+      return;
+    }
 
-// MAIN -> initial state dump
-window.electronAPI.onAllModelLoadStates((states) => {
-  if (!states || typeof states !== "object") return;
-  for (const [model, st] of Object.entries(states)) {
-    updateModelState(model, st || {});
-  }
-});
-
-function wireGlobalRefresh() {
-  const btn = document.getElementById("refresh-active");
-  if (!btn) return;
-
-  if (btn.dataset.multiAiWired === "1") return;
-  btn.dataset.multiAiWired = "1";
-
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    const hard = !!e.shiftKey;
-    window.electronAPI.refreshActive(hard);
+    // If error or ready (or even uninitialized): reload
+    // Respect hardReloadOnRefresh setting for manual refresh actions
+    window.electronAPI.refreshModel(model, !!hardReloadOnRefresh);
   });
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  injectStyles();
-  wireTabsOnce();
-  wireGlobalRefresh();
-  setActiveTabUI(lastActiveModel);
+function wireIPC() {
+  window.electronAPI.onActiveModelChanged((modelName) => {
+    activeModel = modelName;
+    updateActiveTabUI(activeModel);
+  });
 
-  // don't overwrite saved order on startup
-  orderFallbackTimer = setTimeout(() => {
-    if (!haveAppliedOrderFromMain) emitOrderToMain();
-  }, 800);
+  window.electronAPI.onModelOrderChanged((order) => {
+    renderTabs(order);
+  });
+
+  window.electronAPI.onModelLoadStateChanged((payload) => {
+    if (!payload || !payload.model) return;
+    modelStates[payload.model] = {
+      initialized: !!payload.initialized,
+      loading: !!payload.loading,
+      error: !!payload.error
+    };
+    updateDot(payload.model);
+  });
+
+  window.electronAPI.onAllModelLoadStates((states) => {
+    if (states && typeof states === "object") {
+      for (const [model, st] of Object.entries(states)) {
+        modelStates[model] = {
+          initialized: !!st.initialized,
+          loading: !!st.loading,
+          error: !!st.error
+        };
+      }
+      updateAllDots();
+    }
+  });
+}
+
+// -----------------------------
+// BOOTSTRAP
+// -----------------------------
+
+document.addEventListener("DOMContentLoaded", () => {
+  renderTabs(["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
+
+  initAppSettings();
+
+  wireIPC();
+  wireDotClicks();
+
+  initThemeToggle();
+  initSettingsButton();
 });

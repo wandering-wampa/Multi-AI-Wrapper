@@ -3,16 +3,44 @@
 <head>
   <meta charset="UTF-8" />
   <title>Multi-AI Cockpit</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src *; frame-src *; child-src *;">
+
   <style>
+    :root {
+      --bg: #111;
+      --fg: #eee;
+      --bar-bg: #181818;
+      --bar-border: #333;
+      --btn-bg: #222;
+      --btn-border: #444;
+      --btn-hover-bg: #2d2d2d;
+      --btn-hover-border: #666;
+      --hint: rgba(238, 238, 238, 0.6);
+      --active-bg: #2d2d2d;
+      --active-border: #6b7280;
+    }
+
+    html[data-theme="light"] {
+      --bg: #f6f7f9;
+      --fg: #0f172a;
+      --bar-bg: #ffffff;
+      --bar-border: #e5e7eb;
+      --btn-bg: #ffffff;
+      --btn-border: #d1d5db;
+      --btn-hover-bg: #f3f4f6;
+      --btn-hover-border: #9ca3af;
+      --hint: rgba(15, 23, 42, 0.55);
+      --active-bg: #e5e7eb;
+      --active-border: #9ca3af;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
-      height: 100%;
       width: 100%;
+      height: 100%;
+      background-color: var(--bg);
+      color: var(--fg);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background-color: #111;
-      color: #eee;
       overflow: hidden;
     }
 
@@ -20,111 +48,158 @@
       height: 48px;
       display: flex;
       align-items: center;
-      padding: 0 12px;
-      box-sizing: border-box;
-      background: #181818;
-      border-bottom: 1px solid #333;
+      justify-content: space-between;
+      background: var(--bar-bg);
+      border-bottom: 1px solid var(--bar-border);
       -webkit-app-region: drag;
-    }
-
-    #title {
-      font-size: 14px;
-      font-weight: 600;
-      margin-right: 16px;
-      opacity: 0.8;
+      padding: 0 10px;
+      box-sizing: border-box;
     }
 
     #tabs {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       -webkit-app-region: no-drag;
     }
 
     .tab-button {
-      border: 1px solid #444;
-      background: #222;
-      color: #eee;
-      padding: 6px 12px;
+      position: relative;
+      background: var(--btn-bg);
+      border: 1px solid var(--btn-border);
       border-radius: 6px;
-      font-size: 13px;
+      padding: 6px 10px;
       cursor: pointer;
-      outline: none;
-      white-space: nowrap;
-      transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
-      display: inline-flex;
+      color: var(--fg);
+      font-size: 13px;
+      display: flex;
       align-items: center;
+      gap: 6px;
+      user-select: none;
     }
 
     .tab-button:hover {
-      background: #2d2d2d;
-      border-color: #666;
-      transform: translateY(-1px);
+      background: var(--btn-hover-bg);
+      border-color: var(--btn-hover-border);
     }
 
-    .tab-button.active-model {
-      background: #3b82f6;
-      border-color: #60a5fa;
-      color: #fff;
-      font-weight: 600;
+    .tab-button.active {
+      background: var(--active-bg);
+      border-color: var(--active-border);
+      outline: 2px solid rgba(96, 165, 250, 0.65);
+      outline-offset: 0px;
     }
 
-    #spacer {
-      flex: 1;
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #666;
     }
+
+    .status-dot.loading { background: #fbbf24; }
+    .status-dot.ready { background: #22c55e; }
+    .status-dot.error { background: #ef4444; }
 
     #actions {
-      -webkit-app-region: no-drag;
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-left: 12px;
+      -webkit-app-region: no-drag;
     }
 
-    #refresh-active {
-      border: 1px solid #444;
-      background: #222;
-      color: #eee;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 13px;
+    .theme-toggle {
+      position: relative;
+      width: 54px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid var(--btn-border);
+      background: var(--btn-bg);
       cursor: pointer;
       outline: none;
-      transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      padding: 0 7px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      -webkit-app-region: no-drag;
     }
 
-    #refresh-active:hover {
-      background: #2d2d2d;
-      border-color: #666;
-      transform: translateY(-1px);
+    .theme-toggle:hover {
+      background: var(--btn-hover-bg);
+      border-color: var(--btn-hover-border);
     }
 
-    #hint {
-      font-size: 11px;
-      opacity: 0.6;
-      margin-left: 12px;
+    .theme-icon {
+      font-size: 13px;
+      line-height: 1;
+      user-select: none;
+      opacity: 0.85;
+    }
+
+    .theme-knob {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: #fff;
+      transition: transform 0.18s ease;
+      pointer-events: none;
+    }
+
+    html[data-theme="dark"] .theme-knob {
+      transform: translateX(26px);
+    }
+
+    html[data-theme="dark"] .theme-icon.sun { opacity: 0.35; }
+    html[data-theme="light"] .theme-icon.moon { opacity: 0.35; }
+
+    .icon-button {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: 1px solid var(--btn-border);
+      background: var(--btn-bg);
+      color: var(--fg);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: no-drag;
+      user-select: none;
+    }
+
+    .icon-button:hover {
+      background: var(--btn-hover-bg);
+      border-color: var(--btn-hover-border);
+    }
+
+    .icon-button:active {
+      transform: translateY(1px);
+    }
+
+    .icon {
+      font-size: 16px;
+      line-height: 1;
     }
   </style>
 </head>
+
 <body>
   <div id="top-bar">
-    <div id="title">Multi-AI Cockpit</div>
-
-    <div id="tabs">
-      <button class="tab-button" data-model="chatgpt">ChatGPT</button>
-      <button class="tab-button" data-model="claude">Claude</button>
-      <button class="tab-button" data-model="copilot">Copilot</button>
-      <button class="tab-button" data-model="gemini">Gemini</button>
-      <button class="tab-button" data-model="perplexity">Perplexity</button>
-    </div>
-
-    <div id="spacer"></div>
+    <div id="tabs"></div>
 
     <div id="actions">
-      <button id="refresh-active" title="Refresh active tab (Shift-click = hard refresh)">⟳ Refresh</button>
-      <div id="hint">Switch between all your AI models.</div>
+      <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark">
+        <span class="theme-icon sun">☀</span>
+        <span class="theme-icon moon">🌙</span>
+        <span class="theme-knob"></span>
+      </button>
+
+      <button id="settings-button" class="icon-button" title="Settings">
+        <span class="icon">⚙</span>
+      </button>
     </div>
   </div>
 

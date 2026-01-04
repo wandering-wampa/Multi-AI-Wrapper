@@ -174,8 +174,9 @@ This is an early, experimental tool intended for personal use and tinkering. Exp
   - ~~Spinner indicates active loading (click to stop)~~
   - ~~Red dot indicates load failure (click to retry)~~
   - ~~Clicking the status dot refreshes the tab (Shift+click = hard refresh OR just use Reload button)~~
-- Customizable themes – Dark/light modes and optional per-tab accent colors.
-- Settings panel – Simple in-app settings for theme options, per-tab colors, and quality-of-life toggles.
+~~- Customizable themes – Dark/light modes~~
+~~- Settings panel – Simple in-app settings for theme options, behavior, and quality-of-life~~
+- User add or remove tabs/embedded URLs for more variety
 - Command palette (Ctrl+K / Cmd+K) – A searchable action launcher to switch tabs, toggle settings (theme/spellcheck), and run common commands without cluttering the UI.
 - Export options (notes/app-owned content) – Export your notes or saved content to Markdown, PDF, or plain text.
 

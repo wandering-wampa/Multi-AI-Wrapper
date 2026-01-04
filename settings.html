@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Settings</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';">
+  <style>
+    :root {
+      --bg: #0b0b0b;
+      --panel: #111;
+      --panel-2: #161616;
+      --text: #e6e6e6;
+      --muted: #9a9a9a;
+      --accent: #3b82f6;
+      --border: #242424;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.55);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal {
+      width: 900px;
+      height: 560px;
+      background: var(--bg);
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      display: flex;
+      overflow: hidden;
+    }
+
+    .nav {
+      width: 220px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 8px;
+    }
+
+    .nav-title {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding: 8px 12px;
+      letter-spacing: 0.06em;
+    }
+
+    .nav-item {
+      padding: 10px 12px;
+      margin: 2px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .nav-item:hover { background: var(--panel-2); }
+
+    .nav-item.active {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent);
+    }
+
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .content-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .content-body {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .section {
+      max-width: 680px;
+      margin-bottom: 28px;
+    }
+
+    .section h3 {
+      margin: 0 0 6px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .section p {
+      margin: 0 0 12px 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      margin-top: 10px;
+    }
+
+    .row-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .row-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .row-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 16px;
+    }
+
+    .radio {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    /* simple toggle */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      display: inline-block;
+    }
+    .toggle input { display: none; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #2a2a2a;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      transition: 0.15s;
+    }
+    .slider:before {
+      content: "";
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      top: 2px;
+      background: #d8d8d8;
+      border-radius: 999px;
+      transition: 0.15s;
+    }
+    .toggle input:checked + .slider {
+      background: rgba(59,130,246,0.35);
+      border-color: rgba(59,130,246,0.45);
+    }
+    .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+    select {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 14px;
+      min-width: 220px;
+    }
+
+    /* checkbox list */
+    .checklist {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .checkrow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .checkrow:first-child { border-top: none; }
+
+    .checkrow label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .checkrow .hint {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    /* shortcuts list */
+    .shortcuts {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .shortcut-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .shortcut-row:first-child { border-top: none; }
+
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .key {
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-bottom-color: #333;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.25);
+      box-shadow: inset 0 -1px 0 rgba(255,255,255,0.06);
+    }
+
+    /* about */
+    .kv {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .kv-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .kv-row:first-child { border-top: none; }
+
+    .kv-key { color: var(--muted); }
+    .kv-val { font-weight: 600; }
+
+    .links {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .link-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .link-row:first-child { border-top: none; }
+
+    .link-pill {
+      font-size: 12px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.2);
+    }
+
+    .footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .close-btn {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+
+    .close-btn:hover { background: #1d1d1d; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="modal">
+    <div class="nav">
+      <div class="nav-title">Settings</div>
+      <div class="nav-item active" data-page="general">General</div>
+      <div class="nav-item" data-page="models">Models</div>
+      <div class="nav-item" data-page="behavior">Behavior</div>
+      <div class="nav-item" data-page="about">About</div>
+    </div>
+
+    <div class="content">
+      <div class="content-header" id="page-title">General</div>
+
+      <div class="content-body">
+        <!-- General -->
+        <div class="page active" id="page-general">
+          <div class="section">
+            <h3>Theme</h3>
+            <p>Choose how the application appearance is determined.</p>
+
+            <div class="radio-group" id="themeRadios">
+              <label class="radio">
+                <input type="radio" name="theme" value="system">
+                System
+              </label>
+              <label class="radio">
+                <input type="radio" name="theme" value="light">
+                Light
+              </label>
+              <label class="radio">
+                <input type="radio" name="theme" value="dark">
+                Dark
+              </label>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Startup behavior</h3>
+            <p>Control which model is selected when the app starts.</p>
+
+            <div class="row">
+              <div class="row-left">
+                <div class="row-title">Restore last active model on launch</div>
+                <div class="row-subtitle">If off, use a fixed default model.</div>
+              </div>
+              <label class="toggle" title="Restore last active model on launch">
+                <input id="restoreLastToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="row" id="defaultModelRow" style="display:none;">
+              <div class="row-left">
+                <div class="row-title">Default model</div>
+                <div class="row-subtitle">Used when restore-last is disabled.</div>
+              </div>
+
+              <select id="defaultModelSelect" aria-label="Default model">
+                <option value="chatgpt">ChatGPT</option>
+                <option value="claude">Claude</option>
+                <option value="copilot">Copilot</option>
+                <option value="gemini">Gemini</option>
+                <option value="perplexity">Perplexity</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Models -->
+        <div class="page" id="page-models">
+          <div class="section">
+            <h3>Enabled models</h3>
+            <p>Disable models to remove them from the tab bar and ordering.</p>
+
+            <div class="checklist" id="modelsChecklist">
+              <div class="checkrow">
+                <label>
+                  <input type="checkbox" data-model="chatgpt">
+                  ChatGPT
+                </label>
+                <div class="hint">chatgpt</div>
+              </div>
+
+              <div class="checkrow">
+                <label>
+                  <input type="checkbox" data-model="claude">
+                  Claude
+                </label>
+                <div class="hint">claude</div>
+              </div>
+
+              <div class="checkrow">
+                <label>
+                  <input type="checkbox" data-model="copilot">
+                  Copilot
+                </label>
+                <div class="hint">copilot</div>
+              </div>
+
+              <div class="checkrow">
+                <label>
+                  <input type="checkbox" data-model="gemini">
+                  Gemini
+                </label>
+                <div class="hint">gemini</div>
+              </div>
+
+              <div class="checkrow">
+                <label>
+                  <input type="checkbox" data-model="perplexity">
+                  Perplexity
+                </label>
+                <div class="hint">perplexity</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Behavior -->
+        <div class="page" id="page-behavior">
+          <div class="section">
+            <h3>Reload / Stop behavior</h3>
+            <p>Adjust confirmation and refresh behavior.</p>
+
+            <div class="row">
+              <div class="row-left">
+                <div class="row-title">Confirm before stopping a loading model</div>
+                <div class="row-subtitle">Prompts before stopping if the model is currently loading.</div>
+              </div>
+              <label class="toggle" title="Confirm before stopping a loading model">
+                <input id="confirmBeforeStopToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="row">
+              <div class="row-left">
+                <div class="row-title">Hard reload on manual refresh</div>
+                <div class="row-subtitle">Uses reload ignoring cache when you refresh from the UI.</div>
+              </div>
+              <label class="toggle" title="Hard reload on manual refresh">
+                <input id="hardReloadToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Keyboard shortcuts</h3>
+            <p>Current shortcuts (read-only for now).</p>
+
+            <div class="shortcuts" aria-label="Keyboard shortcuts list">
+              <div class="shortcut-row">
+                <div>Next model</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">Tab</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Previous model</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">Shift</span><span class="key">Tab</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Reload model</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">R</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Stop loading</div>
+                <div class="kbd"><span class="key">Esc</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Open settings</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">,</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- About -->
+        <div class="page" id="page-about">
+          <div class="section">
+            <h3>Application</h3>
+            <p>Version and runtime information.</p>
+
+            <div class="kv">
+              <div class="kv-row">
+                <div class="kv-key">App name</div>
+                <div class="kv-val" id="aboutAppName">—</div>
+              </div>
+              <div class="kv-row">
+                <div class="kv-key">App version</div>
+                <div class="kv-val" id="aboutAppVersion">—</div>
+              </div>
+              <div class="kv-row">
+                <div class="kv-key">Electron version</div>
+                <div class="kv-val" id="aboutElectronVersion">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>Links</h3>
+            <p>Placeholders for later (no navigation yet).</p>
+
+            <div class="links">
+              <div class="link-row">
+                <div>Release notes</div>
+                <div class="link-pill">placeholder</div>
+              </div>
+              <div class="link-row">
+                <div>Documentation</div>
+                <div class="link-pill">placeholder</div>
+              </div>
+              <div class="link-row">
+                <div>Report an issue</div>
+                <div class="link-pill">placeholder</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button class="close-btn" id="closeBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Nav switching
+    const navItems = document.querySelectorAll(".nav-item");
+    const pages = document.querySelectorAll(".page");
+    const title = document.getElementById("page-title");
+
+    navItems.forEach(item => {
+      item.addEventListener("click", () => {
+        navItems.forEach(i => i.classList.remove("active"));
+        item.classList.add("active");
+
+        const page = item.dataset.page;
+        pages.forEach(p => p.classList.remove("active"));
+        document.getElementById(`page-${page}`).classList.add("active");
+
+        title.textContent = item.textContent;
+      });
+    });
+
+    document.getElementById("closeBtn").addEventListener("click", () => {
+      window.electronAPI.closeSettings();
+    });
+
+    // Theme wiring
+    const themeRadios = document.querySelectorAll('input[name="theme"]');
+    function setThemeRadios(source) {
+      themeRadios.forEach(r => r.checked = (r.value === source));
+    }
+
+    themeRadios.forEach(radio => {
+      radio.addEventListener("change", () => {
+        if (radio.checked) window.electronAPI.setTheme(radio.value);
+      });
+    });
+
+    window.electronAPI.onThemeChanged(payload => {
+      if (payload?.source) setThemeRadios(payload.source);
+    });
+
+    // Startup behavior wiring
+    const restoreLastToggle = document.getElementById("restoreLastToggle");
+    const defaultModelRow = document.getElementById("defaultModelRow");
+    const defaultModelSelect = document.getElementById("defaultModelSelect");
+
+    function syncStartupUI(settings) {
+      const restore = !!settings?.restoreLastActive;
+      restoreLastToggle.checked = restore;
+      defaultModelRow.style.display = restore ? "none" : "flex";
+
+      if (settings?.defaultModel) {
+        defaultModelSelect.value = settings.defaultModel;
+      }
+    }
+
+    restoreLastToggle.addEventListener("change", async () => {
+      const restore = !!restoreLastToggle.checked;
+      defaultModelRow.style.display = restore ? "none" : "flex";
+      await window.electronAPI.setAppSettings({ restoreLastActive: restore });
+    });
+
+    defaultModelSelect.addEventListener("change", async () => {
+      await window.electronAPI.setAppSettings({ defaultModel: defaultModelSelect.value });
+    });
+
+    // Models enable/disable wiring
+    const modelCheckboxes = Array.from(document.querySelectorAll('#modelsChecklist input[type="checkbox"][data-model]'));
+
+    function syncModelsUI(settings) {
+      const enabled = Array.isArray(settings?.enabledModels) ? settings.enabledModels : null;
+      if (!enabled) return;
+
+      const enabledSet = new Set(enabled);
+      modelCheckboxes.forEach(cb => {
+        cb.checked = enabledSet.has(cb.dataset.model);
+      });
+    }
+
+    function readEnabledModelsFromUI() {
+      return modelCheckboxes.filter(cb => cb.checked).map(cb => cb.dataset.model);
+    }
+
+    modelCheckboxes.forEach(cb => {
+      cb.addEventListener("change", async () => {
+        const enabledModels = readEnabledModelsFromUI();
+        await window.electronAPI.setAppSettings({ enabledModels });
+      });
+    });
+
+    // Behavior wiring
+    const confirmBeforeStopToggle = document.getElementById("confirmBeforeStopToggle");
+    const hardReloadToggle = document.getElementById("hardReloadToggle");
+
+    function syncBehaviorUI(settings) {
+      if (typeof settings?.confirmBeforeStop === "boolean") {
+        confirmBeforeStopToggle.checked = settings.confirmBeforeStop;
+      }
+      if (typeof settings?.hardReloadOnRefresh === "boolean") {
+        hardReloadToggle.checked = settings.hardReloadOnRefresh;
+      }
+    }
+
+    confirmBeforeStopToggle.addEventListener("change", async () => {
+      await window.electronAPI.setAppSettings({ confirmBeforeStop: !!confirmBeforeStopToggle.checked });
+    });
+
+    hardReloadToggle.addEventListener("change", async () => {
+      await window.electronAPI.setAppSettings({ hardReloadOnRefresh: !!hardReloadToggle.checked });
+    });
+
+    // About wiring
+    async function loadAboutInfo() {
+      try {
+        const info = await window.electronAPI.getAppInfo();
+        if (info?.appName) document.getElementById("aboutAppName").textContent = info.appName;
+        if (info?.appVersion) document.getElementById("aboutAppVersion").textContent = info.appVersion;
+        if (info?.electronVersion) document.getElementById("aboutElectronVersion").textContent = info.electronVersion;
+      } catch {}
+    }
+
+    // Initial load
+    window.electronAPI.getAppSettings().then(settings => {
+      if (settings?.themeSource) setThemeRadios(settings.themeSource);
+      syncStartupUI(settings);
+      syncModelsUI(settings);
+      syncBehaviorUI(settings);
+    });
+
+    // Live sync
+    window.electronAPI.onAppSettingsChanged(settings => {
+      syncStartupUI(settings);
+      syncModelsUI(settings);
+      syncBehaviorUI(settings);
+    });
+
+    loadAboutInfo();
+  </script>
+</body>
+</html>
