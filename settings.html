@@ -1035,7 +1035,7 @@
         if (info?.appName) document.getElementById("aboutAppName").textContent = info.appName;
         if (info?.appVersion) document.getElementById("aboutAppVersion").textContent = info.appVersion;
         if (info?.electronVersion) document.getElementById("aboutElectronVersion").textContent = info.electronVersion;
-      } catch {}
+      } catch (err) { console.warn("Multi-AI-Wrapper(settings): loadAboutInfo failed", err); }
     }
 
     // -----------------------------
@@ -1046,12 +1046,12 @@
         lastSettings = await window.electronAPI.getAppSettings();
         if (lastSettings?.themeSource) setThemeRadios(lastSettings.themeSource);
         syncBehaviorUI(lastSettings);
-      } catch {}
+      } catch (err) { console.warn("Multi-AI-Wrapper(settings): initial getAppSettings failed", err); }
 
       try {
         lastModelsPayload = await window.electronAPI.getAppModels();
         renderModelsList(lastModelsPayload);
-      } catch {}
+      } catch (err) { console.warn("Multi-AI-Wrapper(settings): initial getAppModels failed", err); }
 
       if (lastSettings) {
         syncStartupUI(lastSettings);

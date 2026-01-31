@@ -35,7 +35,7 @@ function initAppSettings() {
   // initial load
   window.electronAPI.getAppSettings()
     .then(applyAppSettingsToRenderer)
-    .catch(() => {});
+    .catch((err) => { console.warn("Multi-AI-Wrapper(renderer): getAppSettings failed", err); });
 
   // live updates (e.g., toggled inside Settings window)
   window.electronAPI.onAppSettingsChanged((settings) => {
@@ -60,7 +60,7 @@ function initThemeToggle() {
   // initial paint
   window.electronAPI.getTheme()
     .then(applyThemeToDOM)
-    .catch(() => document.documentElement.setAttribute("data-theme", "dark"));
+    .catch((err) => { console.warn("Multi-AI-Wrapper(renderer): getTheme failed, defaulting to dark", err); document.documentElement.setAttribute("data-theme", "dark"); });
 
   btn.addEventListener("click", async () => {
     try {
@@ -78,7 +78,7 @@ function initThemeToggle() {
 
       const updated = await window.electronAPI.setTheme(nextSource);
       applyThemeToDOM(updated);
-    } catch {}
+    } catch (err) { console.warn("Multi-AI-Wrapper(renderer): theme toggle failed", err); }
   });
 
   window.electronAPI.onThemeChanged((payload) => {
@@ -97,7 +97,7 @@ function initSettingsButton() {
   btn.addEventListener("click", async () => {
     try {
       await window.electronAPI.openSettings();
-    } catch {}
+    } catch (err) { console.warn("Multi-AI-Wrapper(renderer): openSettings failed", err); }
   });
 }
 

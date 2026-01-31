@@ -38,15 +38,27 @@ function loadPersisted() {
   try {
     if (!fs.existsSync(STORAGE_PATH)) return {};
     return JSON.parse(fs.readFileSync(STORAGE_PATH, "utf-8")) || {};
-  } catch {
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: failed to load persisted settings", err);
     return {};
   }
 }
 
 function savePersisted(obj) {
   try {
-    fs.writeFileSync(STORAGE_PATH, JSON.stringify(obj, null, 2), "utf-8");
-  } catch {}
+    const data = JSON.stringify(obj, null, 2);
+    const tmp = `${STORAGE_PATH}.tmp`;
+    fs.writeFileSync(tmp, data, "utf-8");
+    try {
+      fs.renameSync(tmp, STORAGE_PATH);
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: atomic rename failed, falling back to direct write", err);
+      fs.writeFileSync(STORAGE_PATH, data, "utf-8");
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: failed to save persisted settings", err);
+  }
 }
 
 function isHttpsUrl(url) {
@@ -216,13 +228,17 @@ function broadcastModels() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
       mainWindow.webContents.send("app-models-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending models to mainWindow failed", err);
+    }
   }
 
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     try {
       settingsWindow.webContents.send("app-models-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending models to settingsWindow failed", err);
+    }
   }
 }
 
@@ -298,12 +314,16 @@ function broadcastAppSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
       mainWindow.webContents.send("app-settings-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending app-settings to mainWindow failed", err);
+    }
   }
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     try {
       settingsWindow.webContents.send("app-settings-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending app-settings to settingsWindow failed", err);
+    }
   }
 }
 
@@ -382,14 +402,18 @@ function notifyActiveModel(modelName) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     mainWindow.webContents.send("active-model-changed", modelName);
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyActiveModel failed", err);
+  }
 }
 
 function notifyModelOrder(order) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     mainWindow.webContents.send("model-order-changed", order);
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyModelOrder failed", err);
+  }
 }
 
 function notifyModelLoadState(modelName) {
@@ -399,14 +423,18 @@ function notifyModelLoadState(modelName) {
       model: modelName,
       ...modelLoadState[modelName]
     });
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyModelLoadState failed", err);
+  }
 }
 
 function notifyAllModelLoadStates() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     mainWindow.webContents.send("all-model-load-states", modelLoadState);
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyAllModelLoadStates failed", err);
+  }
 }
 
 function markLoading(modelName, loading) {
@@ -455,13 +483,17 @@ function broadcastTheme() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
       mainWindow.webContents.send("theme-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending theme to mainWindow failed", err);
+    }
   }
 
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     try {
       settingsWindow.webContents.send("theme-changed", payload);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending theme to settingsWindow failed", err);
+    }
   }
 }
 
@@ -526,7 +558,9 @@ function createModelView(modelName) {
   wc.setWindowOpenHandler(({ url: target }) => {
     try {
       shell.openExternal(target);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: shell.openExternal failed", err);
+    }
     return { action: "deny" };
   });
 
@@ -550,7 +584,9 @@ function getActiveBounds() {
 function hideView(view) {
   try {
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: hideView failed", err);
+  }
 }
 
 function showOnlyView(activeView) {
@@ -567,7 +603,9 @@ function showOnlyView(activeView) {
   try {
     activeView.setBounds(bounds);
     activeView.setAutoResize({ width: true, height: true });
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: showOnlyView failed", err);
+  }
 }
 
 function ensureViewAddedOnce(view) {
@@ -581,7 +619,8 @@ function ensureViewAddedOnce(view) {
     mainWindow.addBrowserView(view);
     addedViews.add(view);
     return true;
-  } catch {
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: ensureViewAddedOnce failed", err);
     return false;
   }
 }
@@ -626,7 +665,8 @@ function refreshModel(modelName, hard = false) {
     markLoading(modelName, true);
     if (hard) wc.reloadIgnoringCache();
     else wc.reload();
-  } catch {
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: refreshModel failed", err);
     markLoading(modelName, false);
     markError(modelName, true);
   }
@@ -641,7 +681,9 @@ function stopModel(modelName) {
 
   try {
     wc.stop();
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: stopModel failed", err);
+  }
 }
 
 // -----------------------------
@@ -655,7 +697,9 @@ function syncSettingsBounds() {
   const b = mainWindow.getBounds();
   try {
     settingsWindow.setBounds(b, false);
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: syncSettingsBounds failed", err);
+  }
 }
 
 function createSettingsWindow() {
@@ -693,16 +737,24 @@ function createSettingsWindow() {
     settingsWindow.show();
     try {
       settingsWindow.focus();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: settingsWindow.focus failed", err);
+    }
     try {
       settingsWindow.webContents.send("theme-changed", getThemePayload());
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending theme to settingsWindow failed", err);
+    }
     try {
       settingsWindow.webContents.send("app-settings-changed", getAppSettingsPayload());
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending app-settings to settingsWindow failed", err);
+    }
     try {
       settingsWindow.webContents.send("app-models-changed", getModelsPayload());
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: sending models to settingsWindow failed", err);
+    }
   });
 
   settingsWindow.on("closed", () => {
@@ -722,7 +774,9 @@ function openSettingsWindow() {
     settingsWindow.show();
     try {
       settingsWindow.focus();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: settingsWindow.focus failed", err);
+    }
   }
 }
 
@@ -730,7 +784,9 @@ function closeSettingsWindow() {
   if (!settingsWindow || settingsWindow.isDestroyed()) return;
   try {
     settingsWindow.close();
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: closeSettingsWindow failed", err);
+  }
 }
 
 // -----------------------------
@@ -792,14 +848,18 @@ function destroyModelView(modelId) {
       if (addedViews.has(view)) {
         mainWindow.removeBrowserView(view);
       }
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: removeBrowserView failed", err);
+    }
   }
 
   try {
     if (view.webContents && !view.webContents.isDestroyed()) {
       view.webContents.destroy();
     }
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: destroying view.webContents failed", err);
+  }
 
   addedViews.delete(view);
   delete views[modelId];
@@ -841,7 +901,9 @@ ipcMain.handle("appModels:delete", (_event, payload) => {
     if (mainWindow && !mainWindow.isDestroyed() && activeModel) {
       showView(activeModel);
     }
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: showView after delete failed", err);
+  }
 
   notifyModelOrder(getVisibleModelOrder());
   notifyActiveModel(activeModel);
@@ -973,22 +1035,34 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", () => {
     try {
       notifyModelOrder(getVisibleModelOrder());
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: notifyModelOrder failed", err);
+    }
     try {
       notifyActiveModel(activeModel);
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: notifyActiveModel failed", err);
+    }
     try {
       notifyAllModelLoadStates();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: notifyAllModelLoadStates failed", err);
+    }
     try {
       broadcastTheme();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: broadcastTheme failed", err);
+    }
     try {
       broadcastAppSettings();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: broadcastAppSettings failed", err);
+    }
     try {
       broadcastModels();
-    } catch {}
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: broadcastModels failed", err);
+    }
   });
 
   ensureActiveModelIsValid();
@@ -1018,7 +1092,9 @@ function createWindow() {
 app.whenReady().then(() => {
   try {
     session.defaultSession.setSpellCheckerLanguages(["en-US"]);
-  } catch {}
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: setting spellchecker languages failed", err);
+  }
 
   syncNativeTheme();
   createWindow();
