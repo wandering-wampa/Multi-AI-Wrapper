@@ -548,6 +548,38 @@ function createModelView(modelName) {
     markLoading(modelName, false);
     markInitialized(modelName, true);
     markError(modelName, false);
+    // Soft reflow on load: dispatch a resize to fix layout issues (preserve scroll)
+    try {
+      // More robust soft reflow: preserve scroll position and try to refocus the input
+      const script = `(function(){
+        try{
+          const y = window.scrollY || document.documentElement.scrollTop || 0;
+          const doResize = ()=>window.dispatchEvent(new Event('resize'));
+          doResize();
+          setTimeout(doResize, 50);
+          setTimeout(()=>{
+            try{ window.scrollTo(0, y); }catch(e){}
+            try{
+              const input = document.querySelector('textarea, input[type="text"], [contenteditable="true"]');
+              if(input){
+                try{ input.focus();
+                  if(typeof input.selectionStart === 'number'){
+                    input.selectionStart = input.selectionEnd = (input.value || '').length;
+                  } else {
+                    const r = document.createRange(); r.selectNodeContents(input); r.collapse(false);
+                    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+                  }
+                }catch(e){}
+              }
+            }catch(e){}
+          }, 120);
+        }catch(e){}
+      })();`;
+
+      wc.executeJavaScript(script, true).catch(() => {});
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: soft reflow on did-stop-loading failed", err);
+    }
   });
 
   wc.on("did-fail-load", () => {
@@ -581,8 +613,50 @@ function getActiveBounds() {
   };
 }
 
+function runSoftReflowOnWebContents(wc) {
+  if (!wc) return;
+  try {
+    const script = `(function(){
+      try{
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        const doResize = ()=>window.dispatchEvent(new Event('resize'));
+        doResize();
+        setTimeout(doResize,50);
+        setTimeout(()=>{
+          try{ window.scrollTo(0,y); }catch(e){}
+          try{ const input = document.querySelector('textarea, input[type="text"], [contenteditable="true"]'); if(input){ try{ input.focus(); if(typeof input.selectionStart === 'number'){ input.selectionStart = input.selectionEnd = (input.value||'').length; } else { const r=document.createRange(); r.selectNodeContents(input); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); } }catch(e){} } }catch(e){}
+        },120);
+      }catch(e){}
+    })();`;
+
+    const delays = [60, 200, 600];
+    for (const d of delays) {
+      setTimeout(() => {
+        try {
+          if (wc && !wc.isDestroyed()) wc.executeJavaScript(script, true).catch(() => {});
+        } catch (err) {
+          console.warn("Multi-AI-Wrapper: soft reflow execution failed", err);
+        }
+      }, d);
+    }
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: scheduling soft reflow failed", err);
+  }
+}
+
 function hideView(view) {
   try {
+    // Prefer removing the view from the window so it cannot intercept clicks.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.removeBrowserView(view);
+        addedViews.delete(view);
+        return;
+      } catch (err) {
+        // Fall through to bounds zeroing if removal fails
+      }
+    }
+
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
   } catch (err) {
     console.warn("Multi-AI-Wrapper: hideView failed", err);
@@ -594,8 +668,8 @@ function showOnlyView(activeView) {
   const bounds = getActiveBounds();
   if (!bounds) return;
 
-  // Hide everything else
-  for (const v of addedViews) {
+  // Hide everything else (iterate a snapshot to avoid mutating the set during iteration)
+  for (const v of Array.from(addedViews)) {
     if (v !== activeView) hideView(v);
   }
 
@@ -637,15 +711,44 @@ function showView(modelName) {
   if (!view) view = createModelView(modelName);
   if (!view) return;
 
+  const prevActive = activeModel;
   activeModel = modelName;
 
-  savePersisted({
-    ...loadPersisted(),
-    activeModel
-  });
+  // Persist only when the active model actually changes (avoid writes on resize)
+  if (prevActive !== activeModel) {
+    savePersisted({
+      ...loadPersisted(),
+      activeModel
+    });
+  }
 
   if (!ensureViewAddedOnce(view)) return;
   showOnlyView(view);
+
+  // Soft reflow shortly after showing the view to correct off-center layouts (preserve scroll)
+  try {
+    const wcShown = view.webContents;
+    setTimeout(() => {
+      try {
+        if (wcShown && !wcShown.isDestroyed()) {
+          const script = `(function(){
+            try{
+              const y = window.scrollY || document.documentElement.scrollTop || 0;
+              const doResize = ()=>window.dispatchEvent(new Event('resize'));
+              doResize();
+              setTimeout(doResize,50);
+              setTimeout(()=>{ try{ window.scrollTo(0,y); }catch(e){}; try{ const input = document.querySelector('textarea, input[type="text"], [contenteditable="true"]'); if(input){ try{ input.focus(); if(typeof input.selectionStart === 'number'){ input.selectionStart = input.selectionEnd = (input.value||'').length; } else { const r=document.createRange(); r.selectNodeContents(input); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); } }catch(e){} } }catch(e){} },120);
+            }catch(e){}
+          })();`;
+          wcShown.executeJavaScript(script, true).catch(() => {});
+        }
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper: soft reflow after showView failed", err);
+      }
+    }, 120);
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: scheduling soft reflow failed", err);
+  }
 
   notifyActiveModel(activeModel);
 }
@@ -1024,10 +1127,33 @@ function createWindow() {
   mainWindow.on("resize", () => {
     syncSettingsBounds();
 
-    const activeView = views[activeModel];
-    if (activeView && addedViews.has(activeView)) {
-      showOnlyView(activeView);
+    // Mirror a tab-click: re-show the current active model.
+    // `showView` already avoids persisting if the active model hasn't changed
+    // and schedules a soft reflow after showing, so reuse it here for a
+    // consistent, fast refresh on resize/maximize events.
+    try {
+      if (activeModel) showView(activeModel);
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: showView on resize failed", err);
     }
+  });
+  
+  // Also trigger reflow on maximize/unmaximize/fullscreen transitions
+  mainWindow.on("maximize", () => {
+    const activeView = views[activeModel];
+    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
+  });
+  mainWindow.on("unmaximize", () => {
+    const activeView = views[activeModel];
+    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
+  });
+  mainWindow.on("enter-full-screen", () => {
+    const activeView = views[activeModel];
+    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
+  });
+  mainWindow.on("leave-full-screen", () => {
+    const activeView = views[activeModel];
+    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
   });
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
