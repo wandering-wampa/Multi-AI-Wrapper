@@ -6,7 +6,8 @@ const {
   Menu,
   shell,
   session,
-  nativeTheme
+  nativeTheme,
+  clipboard
 } = require("electron");
 
 const path = require("path");
@@ -534,6 +535,65 @@ function createModelView(modelName) {
   views[modelName] = view;
 
   const wc = view.webContents;
+
+  // Attach the same context-menu handler to each model view's webContents
+  try {
+    wc.on("context-menu", (_event, params) => {
+      try {
+        const { editFlags = {}, isEditable, dictionarySuggestions = [] } = params || {};
+        const template = [];
+
+        if (isEditable && Array.isArray(dictionarySuggestions) && dictionarySuggestions.length) {
+          for (const s of dictionarySuggestions.slice(0, 5)) {
+            template.push({
+              label: s,
+              click: () => {
+                try {
+                  if (wc && typeof wc.replaceMisspelling === "function") wc.replaceMisspelling(s);
+                } catch (err) {
+                  console.warn("Multi-AI-Wrapper: replaceMisspelling failed", err);
+                }
+              }
+            });
+          }
+          template.push({ type: "separator" });
+        }
+
+        const safeExecWc = (fnName, ...args) => {
+          try {
+            if (wc && typeof wc[fnName] === "function") return wc[fnName](...args);
+          } catch (err) {
+            console.warn(`Multi-AI-Wrapper: ${fnName} failed`, err);
+          }
+        };
+
+        template.push({ label: "Cut", accelerator: "CmdOrCtrl+X", enabled: !!editFlags.canCut, click: () => safeExecWc("cut") });
+        template.push({ label: "Copy", accelerator: "CmdOrCtrl+C", enabled: !!editFlags.canCopy, click: () => safeExecWc("copy") });
+        template.push({ label: "Paste", accelerator: "CmdOrCtrl+V", enabled: !!editFlags.canPaste, click: () => safeExecWc("paste") });
+        template.push({
+          label: "Paste as plain text",
+          accelerator: "CmdOrCtrl+Shift+V",
+          enabled: !!editFlags.canPaste,
+          click: () => {
+            try {
+              const text = clipboard.readText();
+              if (text != null) safeExecWc("insertText", text);
+            } catch (err) {
+              console.warn("Multi-AI-Wrapper: paste-as-plain-text failed", err);
+            }
+          }
+        });
+        template.push({ label: "Select All", accelerator: "CmdOrCtrl+A", enabled: !!editFlags.canSelectAll, click: () => safeExecWc("selectAll") });
+
+        const menu = Menu.buildFromTemplate(template);
+        menu.popup({ window: mainWindow });
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper: view context-menu handler failed", err);
+      }
+    });
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: attaching context-menu to view failed", err);
+  }
 
   ensureLoadState(modelName);
   markLoading(modelName, true);
@@ -1199,6 +1259,96 @@ function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
     addedViews.clear();
+  });
+
+  // Restore a richer context menu in the requested order with plain-text paste
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    try {
+      const { editFlags = {}, isEditable, dictionarySuggestions = [] } = params || {};
+      const template = [];
+
+      // 1) Spelling suggestions (if any)
+      if (isEditable && Array.isArray(dictionarySuggestions) && dictionarySuggestions.length) {
+        for (const s of dictionarySuggestions.slice(0, 5)) {
+          template.push({
+            label: s,
+            click: () => {
+              try {
+                if (mainWindow && mainWindow.webContents && typeof mainWindow.webContents.replaceMisspelling === "function") {
+                  mainWindow.webContents.replaceMisspelling(s);
+                }
+              } catch (err) {
+                console.warn("Multi-AI-Wrapper: replaceMisspelling failed", err);
+              }
+            }
+          });
+        }
+        template.push({ type: "separator" });
+      }
+
+      // Helper to safely call webContents methods only when available
+      const safeExec = (fnName, ...args) => {
+        try {
+          if (mainWindow && mainWindow.webContents && typeof mainWindow.webContents[fnName] === "function") {
+            return mainWindow.webContents[fnName](...args);
+          }
+        } catch (err) {
+          console.warn(`Multi-AI-Wrapper: ${fnName} failed`, err);
+        }
+      };
+
+      // 2) Cut
+      template.push({
+        label: "Cut",
+        accelerator: "CmdOrCtrl+X",
+        enabled: !!editFlags.canCut,
+        click: () => safeExec("cut")
+      });
+
+      // 3) Copy
+      template.push({
+        label: "Copy",
+        accelerator: "CmdOrCtrl+C",
+        enabled: !!editFlags.canCopy,
+        click: () => safeExec("copy")
+      });
+
+      // 4) Paste (regular)
+      template.push({
+        label: "Paste",
+        accelerator: "CmdOrCtrl+V",
+        enabled: !!editFlags.canPaste,
+        click: () => safeExec("paste")
+      });
+
+      // 5) Paste as plain text (Ctrl+Shift+V / CmdOrCtrl+Shift+V)
+      template.push({
+        label: "Paste as plain text",
+        accelerator: "CmdOrCtrl+Shift+V",
+        enabled: !!editFlags.canPaste,
+        click: () => {
+          try {
+            const text = clipboard.readText();
+            if (text != null) safeExec("insertText", text);
+          } catch (err) {
+            console.warn("Multi-AI-Wrapper: paste-as-plain-text failed", err);
+          }
+        }
+      });
+
+      // 6) Select All
+      template.push({
+        label: "Select All",
+        accelerator: "CmdOrCtrl+A",
+        enabled: !!editFlags.canSelectAll,
+        click: () => safeExec("selectAll")
+      });
+
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({ window: mainWindow });
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: context-menu handler failed", err);
+    }
   });
 
   const template = [
