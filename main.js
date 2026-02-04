@@ -534,6 +534,12 @@ function createModelView(modelName) {
 
   views[modelName] = view;
 
+  try {
+    view.setAutoResize({ width: true, height: true });
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: setAutoResize failed", err);
+  }
+
   const wc = view.webContents;
 
   // Attach the same context-menu handler to each model view's webContents
@@ -661,16 +667,51 @@ function createModelView(modelName) {
   return view;
 }
 
+const TOP_BAR_HEIGHT = 48;
+
 function getActiveBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
-  const { width, height } = mainWindow.getContentBounds();
-  const topBarHeight = 48;
+  const [width, height] = mainWindow.getContentSize();
   return {
     x: 0,
-    y: topBarHeight,
+    y: TOP_BAR_HEIGHT,
     width,
-    height: Math.max(0, height - topBarHeight)
+    height: Math.max(0, height - TOP_BAR_HEIGHT)
   };
+}
+
+function layoutView(view, { forceRepaint = false } = {}) {
+  if (!view) return;
+  const bounds = getActiveBounds();
+  if (!bounds) return;
+
+  try {
+    view.setBounds(bounds);
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: layoutView setBounds failed", err);
+    return;
+  }
+
+  if (forceRepaint && process.platform === "win32") {
+    setTimeout(() => {
+      try {
+        if (views[activeModel] === view && addedViews.has(view)) {
+          view.setBounds(bounds);
+        }
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper: layoutView repaint setBounds failed", err);
+      }
+    }, 0);
+  }
+}
+
+function layoutActiveView({ forceRepaint = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!activeModel) return;
+  const view = views[activeModel];
+  if (!view) return;
+  if (!ensureViewAddedOnce(view)) return;
+  layoutView(view, { forceRepaint });
 }
 
 function runSoftReflowOnWebContents(wc) {
@@ -725,8 +766,6 @@ function hideView(view) {
 
 function showOnlyView(activeView) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const bounds = getActiveBounds();
-  if (!bounds) return;
 
   // Hide everything else (iterate a snapshot to avoid mutating the set during iteration)
   for (const v of Array.from(addedViews)) {
@@ -735,8 +774,7 @@ function showOnlyView(activeView) {
 
   // Show active
   try {
-    activeView.setBounds(bounds);
-    activeView.setAutoResize({ width: true, height: true });
+    layoutView(activeView, { forceRepaint: true });
   } catch (err) {
     console.warn("Multi-AI-Wrapper: showOnlyView failed", err);
   }
@@ -1187,31 +1225,34 @@ function createWindow() {
   mainWindow.on("resize", () => {
     syncSettingsBounds();
 
-    // Mirror a tab-click: re-show the current active model.
-    // `showView` already avoids persisting if the active model hasn't changed
-    // and schedules a soft reflow after showing, so reuse it here for a
-    // consistent, fast refresh on resize/maximize events.
+    // Layout the active view without altering state/persistence.
     try {
-      if (activeModel) showView(activeModel);
+      layoutActiveView({ forceRepaint: true });
+      const activeView = views[activeModel];
+      if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
     } catch (err) {
-      console.warn("Multi-AI-Wrapper: showView on resize failed", err);
+      console.warn("Multi-AI-Wrapper: layoutActiveView on resize failed", err);
     }
   });
   
   // Also trigger reflow on maximize/unmaximize/fullscreen transitions
   mainWindow.on("maximize", () => {
+    layoutActiveView({ forceRepaint: true });
     const activeView = views[activeModel];
     if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
   });
   mainWindow.on("unmaximize", () => {
+    layoutActiveView({ forceRepaint: true });
     const activeView = views[activeModel];
     if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
   });
   mainWindow.on("enter-full-screen", () => {
+    layoutActiveView({ forceRepaint: true });
     const activeView = views[activeModel];
     if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
   });
   mainWindow.on("leave-full-screen", () => {
+    layoutActiveView({ forceRepaint: true });
     const activeView = views[activeModel];
     if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
   });
