@@ -16,6 +16,23 @@ const fs = require("fs");
 let mainWindow;
 let settingsWindow;
 
+// Allow dev runs to isolate profile data (cookies/storage/settings) per project folder.
+const PROFILE_OVERRIDE_DIR =
+  !app.isPackaged &&
+  typeof process.env.MAW_PROFILE_DIR === "string" &&
+  process.env.MAW_PROFILE_DIR.trim()
+    ? path.resolve(process.env.MAW_PROFILE_DIR.trim())
+    : null;
+
+if (PROFILE_OVERRIDE_DIR) {
+  try {
+    fs.mkdirSync(PROFILE_OVERRIDE_DIR, { recursive: true });
+    app.setPath("userData", PROFILE_OVERRIDE_DIR);
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: failed to apply MAW_PROFILE_DIR override", err);
+  }
+}
+
 // -----------------------------
 // Models catalog seed (used only when no persisted catalog exists)
 // -----------------------------
