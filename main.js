@@ -12,6 +12,7 @@ const {
 
 const path = require("path");
 const fs = require("fs");
+const APP_ICON_PATH = path.join(__dirname, "assets", "Multi-Ai-logo.ico");
 
 let mainWindow;
 let settingsWindow;
@@ -940,6 +941,7 @@ function createSettingsWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1231,6 +1233,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: "#111111",
     title: "Multi-AI Cockpit",
+    icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1424,6 +1427,10 @@ function createWindow() {
 // -----------------------------
 
 app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.multi-ai-cockpit.app");
+  }
+
   try {
     session.defaultSession.setSpellCheckerLanguages(["en-US"]);
   } catch (err) {
