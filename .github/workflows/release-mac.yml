@@ -43,7 +43,7 @@ jobs:
           fi
 
           echo "Zipping: ${APP_PATH}"
-          OUT_ZIP="dist/MultiAICockpit-macOS-universal-${{ github.event.inputs.tag_name }}.zip"
+          OUT_ZIP="dist/Multi-AI-Wrapper-macOS-universal-${{ github.event.inputs.tag_name }}.zip"
           ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${OUT_ZIP}"
           echo "Created: ${OUT_ZIP}"
 
@@ -51,7 +51,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/MultiAICockpit-macOS-universal-${{ github.event.inputs.tag_name }}.zip
-          asset_name: MultiAICockpit-macOS-universal-${{ github.event.inputs.tag_name }}.zip
+          file: dist/Multi-AI-Wrapper-macOS-universal-${{ github.event.inputs.tag_name }}.zip
+          asset_name: Multi-AI-Wrapper-macOS-universal-${{ github.event.inputs.tag_name }}.zip
           tag: ${{ github.event.inputs.tag_name }}
           overwrite: true

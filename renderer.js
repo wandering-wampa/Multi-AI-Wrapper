@@ -15,6 +15,7 @@ let layoutMode = "tabs";
 let modelsById = Object.create(null);
 let compareModelIds = [];
 let compareHistoryOpen = false;
+let compareImageAttachments = [];
 
 // last tab order we rendered (array of model ids)
 let lastTabOrder = [];
@@ -149,27 +150,51 @@ function initCompareModeButton() {
 
 function buildCompareResultMessage(result) {
   if (!result) return "Shared send failed.";
-  if (result.error === "empty-prompt") return "Enter a prompt first.";
+  if (result.error === "empty-prompt") return "Enter a prompt or attach an image first.";
 
   const total = Number.isFinite(result.totalCount) ? result.totalCount : 0;
   const success = Number.isFinite(result.successCount) ? result.successCount : 0;
+  const attachmentCount = Number.isFinite(result.attachmentCount) ? result.attachmentCount : 0;
+  const hasPrompt = !!result.hasPrompt;
+  const stagedOnly = attachmentCount > 0;
+  const stagedLabel = hasPrompt ? "Prompt and images staged" : "Images staged";
+  const sentLabel = attachmentCount > 0
+    ? hasPrompt ? "Prompt sent and image paste attempted" : "Image paste attempted"
+    : "Prompt sent";
+  const failedLabel = attachmentCount > 0
+    ? hasPrompt ? "Prompt/image send failed" : "Image send failed"
+    : "Shared send failed";
+
+  if (stagedOnly) {
+    if (total > 0 && success === total) {
+      return total === 1
+        ? `${stagedLabel}. Submit manually in that pane.`
+        : `${stagedLabel} in ${success}/${total} models. Submit manually in each pane.`;
+    }
+
+    if (total > 0) {
+      return `${stagedLabel} in ${success}/${total} models. Submit manually where staged; check panes that did not accept it.`;
+    }
+  }
 
   if (result.ok) {
-    return total === 1 ? "Prompt sent." : `Prompt sent to ${success}/${total} models.`;
+    return total === 1 ? `${sentLabel}.` : `${sentLabel} to ${success}/${total} models.`;
   }
 
   if (total > 0) {
-    return `Prompt sent to ${success}/${total} models. Check panes that were still loading or unsupported.`;
+    return `${sentLabel} to ${success}/${total} models. Check panes that were still loading, unsupported, or rejected images.`;
   }
 
-  return "Shared send failed.";
+  return failedLabel;
 }
 
 function initCompareComposer() {
   const input = document.getElementById("compare-prompt-input");
   const sendButton = document.getElementById("compare-send-button");
   const historyButton = document.getElementById("compare-history-button");
-  if (!input || !sendButton || !historyButton) return;
+  const attachButton = document.getElementById("compare-attach-button");
+  const attachmentsEl = document.getElementById("compare-attachments");
+  if (!input || !sendButton || !historyButton || !attachButton || !attachmentsEl) return;
 
   const focusCompareInput = () => {
     try {
@@ -178,6 +203,52 @@ function initCompareComposer() {
     input.focus();
     const length = input.value.length;
     input.setSelectionRange(length, length);
+  };
+
+  const renderCompareAttachments = () => {
+    attachmentsEl.innerHTML = "";
+    const hasItems = compareImageAttachments.length > 0;
+    attachmentsEl.classList.toggle("has-items", hasItems);
+    attachButton.classList.toggle("has-items", hasItems);
+    attachButton.title = hasItems ? `Attached images (${compareImageAttachments.length})` : "Attach images";
+    attachButton.setAttribute(
+      "aria-label",
+      hasItems ? `Attached images (${compareImageAttachments.length})` : "Attach images"
+    );
+
+    if (!hasItems) return;
+
+    for (const item of compareImageAttachments) {
+      const chip = document.createElement("div");
+      chip.className = "compare-attachment-chip";
+
+      const name = document.createElement("span");
+      name.className = "compare-attachment-name";
+      name.textContent = item.name || "Image";
+      name.title = item.name || "Image";
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "compare-attachment-remove";
+      remove.textContent = "×";
+      remove.title = `Remove ${item.name || "image"}`;
+      remove.dataset.path = item.path || "";
+
+      chip.appendChild(name);
+      chip.appendChild(remove);
+      attachmentsEl.appendChild(chip);
+    }
+  };
+
+  const setCompareAttachments = (items) => {
+    const next = Array.isArray(items) ? items : [];
+    compareImageAttachments = next
+      .filter((item) => item && typeof item.path === "string" && item.path)
+      .map((item) => ({
+        path: item.path,
+        name: typeof item.name === "string" && item.name ? item.name : item.path.split(/[\\/]/).pop() || "Image"
+      }));
+    renderCompareAttachments();
   };
 
   const toggleCompareHistoryFromUI = async () => {
@@ -208,27 +279,31 @@ function initCompareComposer() {
 
   const sendPrompt = async () => {
     const promptText = input.value || "";
-    if (!promptText.trim()) {
-      setCompareStatus("Enter a prompt first.");
+    const imagePaths = compareImageAttachments.map((item) => item.path).filter(Boolean);
+    if (!promptText.trim() && imagePaths.length === 0) {
+      setCompareStatus("Enter a prompt or attach an image first.");
       input.focus();
       return;
     }
 
     sendButton.disabled = true;
+    attachButton.disabled = true;
     setCompareStatus("Sending...");
 
     try {
-      const result = await window.electronAPI.sendComparePrompt(promptText);
+      const result = await window.electronAPI.sendComparePrompt({ promptText, imagePaths });
       setCompareStatus(buildCompareResultMessage(result));
 
       if (result?.ok) {
         input.value = "";
+        setCompareAttachments([]);
       }
     } catch (err) {
       console.warn("Multi-AI-Wrapper(renderer): shared send failed", err);
       setCompareStatus("Shared send failed.");
     } finally {
       sendButton.disabled = false;
+      attachButton.disabled = false;
       focusCompareInput();
       setTimeout(() => {
         focusCompareInput();
@@ -244,11 +319,51 @@ function initCompareComposer() {
     await toggleCompareHistoryFromUI();
   });
 
+  attachButton.addEventListener("click", async () => {
+    try {
+      const result = await window.electronAPI.pickCompareImages();
+      if (!result?.ok || result?.canceled) return;
+
+      const incoming = Array.isArray(result.images) ? result.images : [];
+      if (!incoming.length) return;
+
+      const next = compareImageAttachments.slice();
+      const seen = new Set(next.map((item) => item.path));
+      for (const item of incoming) {
+        if (!item?.path || seen.has(item.path)) continue;
+        seen.add(item.path);
+        next.push({
+          path: item.path,
+          name: item.name || item.path.split(/[\\/]/).pop() || "Image"
+        });
+      }
+
+      setCompareAttachments(next);
+      setCompareStatus(
+        next.length === 1 ? "1 image attached." : `${next.length} images attached.`
+      );
+      focusCompareInput();
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): pickCompareImages failed", err);
+      setCompareStatus("Image picker failed.");
+    }
+  });
+
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendPrompt();
     }
+  });
+
+  attachmentsEl.addEventListener("click", (event) => {
+    const button = event.target?.closest?.(".compare-attachment-remove");
+    if (!button) return;
+
+    const path = button.dataset.path || "";
+    setCompareAttachments(compareImageAttachments.filter((item) => item.path !== path));
+    setCompareStatus(compareImageAttachments.length ? "Attachment removed." : "");
+    focusCompareInput();
   });
 
   window.electronAPI.onCompareHistorySelected((payload) => {
@@ -270,6 +385,8 @@ function initCompareComposer() {
       await toggleCompareHistoryFromUI();
     }
   });
+
+  renderCompareAttachments();
 }
 
 // -----------------------------

@@ -1,21 +1,12 @@
-const path = require("path");
 const packager = require("electron-packager");
-const pkg = require("../package.json");
+const { createPackagerOptions } = require("./package-common");
 
 (async () => {
-  const projectDir = path.join(__dirname, "..");
-  const outDir = path.join(projectDir, "dist");
-  const name = `MultiAICockpit-v${pkg.version}`;
-
   try {
-    const appPaths = await packager({
-      dir: projectDir,
-      name,
+    const appPaths = await packager(createPackagerOptions({
       platform: "darwin",
-      arch: "universal",
-      out: outDir,
-      overwrite: true
-    });
+      arch: "universal"
+    }));
 
     if (Array.isArray(appPaths) && appPaths.length) {
       console.log(`Wrote new app to: ${appPaths.join(", ")}`);

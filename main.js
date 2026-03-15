@@ -4,9 +4,11 @@ const {
   BrowserView,
   ipcMain,
   Menu,
+  dialog,
   shell,
   session,
   nativeTheme,
+  nativeImage,
   clipboard,
   screen
 } = require("electron");
@@ -58,6 +60,7 @@ const COMPARE_HISTORY_WINDOW_WIDTH = 396;
 const COMPARE_HISTORY_WINDOW_HEIGHT = 420;
 const COMPARE_HISTORY_WINDOW_GAP = 10;
 const COMPARE_HISTORY_REOPEN_GUARD_MS = 250;
+const COMPARE_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
 
 // -----------------------------
 // Persistence
@@ -213,6 +216,74 @@ function normalizeComparePromptHistory(rawHistory) {
   }
 
   return out;
+}
+
+function normalizeCompareImagePaths(rawPaths) {
+  const input = Array.isArray(rawPaths) ? rawPaths : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const item of input) {
+    const rawPath = typeof item === "string" ? item.trim() : "";
+    if (!rawPath) continue;
+
+    let resolvedPath;
+    try {
+      resolvedPath = path.resolve(rawPath);
+    } catch (_) {
+      continue;
+    }
+
+    if (seen.has(resolvedPath)) continue;
+
+    let stats;
+    try {
+      stats = fs.statSync(resolvedPath);
+    } catch (_) {
+      continue;
+    }
+    if (!stats?.isFile?.()) continue;
+
+    const ext = path.extname(resolvedPath).slice(1).toLowerCase();
+    if (!COMPARE_IMAGE_EXTENSIONS.has(ext)) continue;
+
+    seen.add(resolvedPath);
+    out.push(resolvedPath);
+  }
+
+  return out;
+}
+
+function captureClipboardSnapshot() {
+  try {
+    return {
+      text: clipboard.readText(),
+      html: clipboard.readHTML(),
+      rtf: clipboard.readRTF(),
+      image: clipboard.readImage()
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function restoreClipboardSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return;
+
+  try {
+    clipboard.clear();
+    const data = {};
+    if (typeof snapshot.text === "string" && snapshot.text) data.text = snapshot.text;
+    if (typeof snapshot.html === "string" && snapshot.html) data.html = snapshot.html;
+    if (typeof snapshot.rtf === "string" && snapshot.rtf) data.rtf = snapshot.rtf;
+    if (snapshot.image && typeof snapshot.image.isEmpty === "function" && !snapshot.image.isEmpty()) {
+      data.image = snapshot.image;
+    }
+
+    if (Object.keys(data).length) {
+      clipboard.write(data);
+    }
+  } catch (_) {}
 }
 
 // Back-compat note:
@@ -853,7 +924,7 @@ function createModelView(modelName) {
 }
 
 const TOP_BAR_HEIGHT = 48;
-const COMPARE_COMPOSER_HEIGHT = 132;
+const COMPARE_COMPOSER_HEIGHT = 210;
 
 function getContentBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
@@ -1205,15 +1276,39 @@ function buildProviderDomHelperPreamble(modelId) {
       return Array.from(new Set(elements.filter(Boolean)));
     }
 
-    function queryVisible(selectors, root) {
+    function collectQueryMatches(selectors, root, visibleOnly) {
       const scope = root || document;
       const out = [];
-      for (const selector of selectors) {
+      const visited = new Set();
+
+      function visit(node) {
+        if (!node || visited.has(node)) return;
+        visited.add(node);
+
+        for (const selector of selectors) {
+          try {
+            out.push(...Array.from(node.querySelectorAll(selector)));
+          } catch (_) {}
+        }
+
+        let descendants = [];
         try {
-          out.push(...Array.from(scope.querySelectorAll(selector)));
+          descendants = Array.from(node.querySelectorAll("*"));
         } catch (_) {}
+
+        for (const el of descendants) {
+          if (el && el.shadowRoot) {
+            visit(el.shadowRoot);
+          }
+        }
       }
-      return uniqueElements(out).filter(isVisible);
+
+      visit(scope);
+      return uniqueElements(out).filter((el) => (visibleOnly ? isVisible(el) : true));
+    }
+
+    function queryVisible(selectors, root) {
+      return collectQueryMatches(selectors, root, true);
     }
 
     function pickBottomMost(elements) {
@@ -1342,8 +1437,72 @@ function buildProviderDomHelperPreamble(modelId) {
         if (button) return button;
       }
 
+       function getButtonText(el) {
+        if (!el) return "";
+        return [
+          el.getAttribute?.("aria-label") || "",
+          el.getAttribute?.("title") || "",
+          el.innerText || "",
+          el.textContent || ""
+        ]
+          .join(" ")
+          .trim()
+          .toLowerCase();
+      }
+
+      function scoreButtonCandidate(el) {
+        if (!isClickableButton(el)) return -1e9;
+        if (inputEl && el === inputEl) return -1e9;
+
+        const text = getButtonText(el);
+        if (/(attach|upload|image|photo|file|plus|add|mic|voice|history|new chat|stop|cancel|close|settings)/i.test(text)) {
+          return -1e6;
+        }
+
+        let score = 0;
+        if (/(send|submit|ask|enter)/i.test(text)) score += 40;
+        if (el.getAttribute?.("type") === "submit") score += 20;
+        if (el.querySelector?.("svg")) score += 3;
+
+        const rect = el.getBoundingClientRect();
+        if (inputEl) {
+          const inputRect = inputEl.getBoundingClientRect();
+          score -= Math.abs(rect.top - inputRect.bottom) / 18;
+          score -= Math.abs(rect.right - inputRect.right) / 14;
+          if (rect.right >= inputRect.right - 32) score += 8;
+          if (rect.top >= inputRect.top - 28) score += 6;
+        }
+
+        if (rect.width <= 96 && rect.height <= 72) score += 2;
+        return score;
+      }
+
+      function pickBestButton(scope) {
+        const candidates = queryVisible(["button", "[role='button']"], scope)
+          .filter((el) => el !== inputEl);
+        if (!candidates.length) return null;
+        return candidates
+          .slice()
+          .sort((a, b) => scoreButtonCandidate(b) - scoreButtonCandidate(a))[0] || null;
+      }
+
+      let container = inputEl?.parentElement || null;
+      for (let depth = 0; container && depth < 5; depth += 1) {
+        const candidate = pickBestButton(container);
+        if (candidate && scoreButtonCandidate(candidate) > -1000) {
+          return candidate;
+        }
+        container = container.parentElement;
+      }
+
+      const fallbackButton = pickBestButton(document);
+      if (fallbackButton && scoreButtonCandidate(fallbackButton) > -1000) {
+        return fallbackButton;
+      }
+
       return null;
     }
+
   `;
 }
 
@@ -1415,7 +1574,94 @@ function buildClickSendButtonScript(modelId) {
   })();`;
 }
 
-async function sendPromptToModel(modelId, promptText) {
+function buildFocusPromptTargetScript(modelId) {
+  return `(function () {
+    ${buildProviderDomHelperPreamble(modelId)}
+
+    const inputEl = findInputElement();
+    if (!inputEl) {
+      return { ok: false, error: "composer-not-found" };
+    }
+
+    inputEl.focus();
+    return { ok: true };
+  })();`;
+}
+
+function safeWarn(...args) {
+  try {
+    const line = args
+      .map((item) => {
+        if (item instanceof Error) {
+          return `${item.name}: ${item.message}`;
+        }
+        if (typeof item === "string") return item;
+        try {
+          return JSON.stringify(item);
+        } catch (_) {
+          return String(item);
+        }
+      })
+      .join(" ");
+    fs.appendFileSync(path.join(app.getPath("userData"), "maw-main.log"), `${new Date().toISOString()} ${line}\n`, "utf8");
+  } catch (_) {}
+}
+
+async function attachImagesToModel(modelId, imagePaths, view) {
+  const normalizedPaths = normalizeCompareImagePaths(imagePaths);
+  if (!normalizedPaths.length) {
+    return { modelId, ok: true };
+  }
+
+  const targetView = view || views[modelId];
+  const wc = targetView?.webContents;
+  if (!wc || wc.isDestroyed()) {
+    return { modelId, ok: false, error: "view-unavailable" };
+  }
+
+  try {
+    for (const filePath of normalizedPaths) {
+      const image = nativeImage.createFromPath(filePath);
+      if (!image || image.isEmpty()) {
+        return { modelId, ok: false, error: "invalid-image-file" };
+      }
+
+      const focused = await wc.executeJavaScript(
+        buildFocusPromptTargetScript(modelId),
+        true
+      );
+
+      if (!focused?.ok) {
+        return { modelId, ok: false, error: focused?.error || "composer-not-found" };
+      }
+
+      try {
+        wc.focus();
+      } catch (_) {}
+
+      clipboard.write({ image });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      wc.paste();
+      await new Promise((resolve) => setTimeout(resolve, 360));
+    }
+
+    return {
+      modelId,
+      ok: true,
+      attachedCount: normalizedPaths.length,
+      method: "clipboard-paste"
+    };
+  } catch (err) {
+    safeWarn(`Multi-AI-Wrapper: attachImagesToModel failed for ${modelId}`, err);
+    return { modelId, ok: false, error: "file-attach-failed" };
+  }
+}
+
+async function sendPromptToModel(modelId, promptText, imagePaths = []) {
+  const trimmedPrompt = typeof promptText === "string" ? promptText.trim() : "";
+  const normalizedImagePaths = normalizeCompareImagePaths(imagePaths);
+  const shouldStageOnly = normalizedImagePaths.length > 0;
+
   if (!MODELS_BY_ID[modelId]) {
     return { modelId, ok: false, error: "unknown-model" };
   }
@@ -1437,7 +1683,7 @@ async function sendPromptToModel(modelId, promptText) {
     try {
       view.webContents.focus();
     } catch (err) {
-      console.warn(`Multi-AI-Wrapper: focus failed for ${modelId}`, err);
+      safeWarn(`Multi-AI-Wrapper: focus failed for ${modelId}`, err);
     }
 
     const prepared = await view.webContents.executeJavaScript(
@@ -1453,57 +1699,117 @@ async function sendPromptToModel(modelId, promptText) {
       };
     }
 
-    await view.webContents.insertText(promptText);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-
-    let inspect = await view.webContents.executeJavaScript(
-      buildInspectPromptStateScript(modelId, promptText),
-      true
-    );
-
-    if (inspect?.exactMatch || inspect?.includesPrompt) {
-      try {
-        view.webContents.sendInputEvent({ type: "rawKeyDown", keyCode: "Enter" });
-        view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-      } catch (err) {
-        console.warn(`Multi-AI-Wrapper: sendInputEvent Enter failed for ${modelId}`, err);
+    if (normalizedImagePaths.length) {
+      const attached = await attachImagesToModel(modelId, normalizedImagePaths, view);
+      if (!attached?.ok) {
+        return attached;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 180));
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    }
+
+    let inspect = null;
+
+    if (trimmedPrompt) {
+      await view.webContents.insertText(trimmedPrompt);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
       inspect = await view.webContents.executeJavaScript(
-        buildInspectPromptStateScript(modelId, promptText),
+        buildInspectPromptStateScript(modelId, trimmedPrompt),
         true
       );
     }
 
-    if (inspect?.empty) {
+    if (shouldStageOnly) {
+      if (trimmedPrompt) {
+        const staged = !!(inspect?.exactMatch || inspect?.includesPrompt);
+        return {
+          modelId,
+          ok: staged,
+          error: staged ? null : "staging-not-confirmed",
+          method: "staged-with-images"
+        };
+      }
+
       return {
         modelId,
         ok: true,
-        method: "native-enter"
+        method: "staged-images-only"
       };
     }
 
-    if (inspect?.exactMatch || inspect?.includesPrompt) {
+    if (trimmedPrompt || normalizedImagePaths.length) {
+      try {
+        view.webContents.sendInputEvent({ type: "rawKeyDown", keyCode: "Enter" });
+        view.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+      } catch (err) {
+        safeWarn(`Multi-AI-Wrapper: sendInputEvent Enter failed for ${modelId}`, err);
+      }
+
+      if (trimmedPrompt || normalizedImagePaths.length) {
+        try {
+          view.webContents.sendInputEvent({ type: "rawKeyDown", keyCode: "Enter", modifiers: ["control"] });
+          view.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: ["control"] });
+          view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter", modifiers: ["control"] });
+        } catch (err) {
+          safeWarn(`Multi-AI-Wrapper: sendInputEvent Ctrl+Enter failed for ${modelId}`, err);
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      if (trimmedPrompt) {
+        inspect = await view.webContents.executeJavaScript(
+          buildInspectPromptStateScript(modelId, trimmedPrompt),
+          true
+        );
+      }
+    }
+
+    if (trimmedPrompt && inspect?.empty) {
+      return {
+        modelId,
+        ok: true,
+        method: normalizedImagePaths.length ? "native-enter-with-images" : "native-enter"
+      };
+    }
+
+    if (!trimmedPrompt || normalizedImagePaths.length || inspect?.exactMatch || inspect?.includesPrompt) {
       const clicked = await view.webContents.executeJavaScript(
         buildClickSendButtonScript(modelId),
         true
       );
 
       if (clicked?.ok) {
-        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => setTimeout(resolve, normalizedImagePaths.length ? 360 : 220));
+        if (!trimmedPrompt) {
+          return {
+            modelId,
+            ok: true,
+            method: "button-images-only"
+          };
+        }
+
         inspect = await view.webContents.executeJavaScript(
-          buildInspectPromptStateScript(modelId, promptText),
+          buildInspectPromptStateScript(modelId, trimmedPrompt),
           true
         );
+
+        if (normalizedImagePaths.length && inspect?.empty) {
+          return {
+            modelId,
+            ok: true,
+            method: "button-with-images"
+          };
+        }
       }
     }
 
-    if (inspect?.empty) {
+    if (trimmedPrompt && inspect?.empty) {
       return {
         modelId,
         ok: true,
-        method: "button"
+        method: normalizedImagePaths.length ? "button-with-images" : "button"
       };
     }
 
@@ -1513,24 +1819,36 @@ async function sendPromptToModel(modelId, promptText) {
       error: "submit-not-confirmed"
     };
   } catch (err) {
-    console.warn(`Multi-AI-Wrapper: sendPromptToModel failed for ${modelId}`, err);
+    safeWarn(`Multi-AI-Wrapper: sendPromptToModel failed for ${modelId}`, err);
     return { modelId, ok: false, error: "execute-javascript-failed" };
   }
 }
 
-async function sendPromptToVisibleModels(promptText) {
-  const trimmedPrompt = typeof promptText === "string" ? promptText.trim() : "";
-  if (!trimmedPrompt) {
+async function sendPromptToVisibleModels(payload) {
+  const promptText = typeof payload?.promptText === "string" ? payload.promptText : "";
+  const trimmedPrompt = promptText.trim();
+  const imagePaths = normalizeCompareImagePaths(payload?.imagePaths);
+
+  if (!trimmedPrompt && !imagePaths.length) {
     return { ok: false, error: "empty-prompt", results: [] };
   }
 
-  rememberComparePrompt(trimmedPrompt);
+  if (trimmedPrompt) {
+    rememberComparePrompt(trimmedPrompt);
+  }
 
   const visibleModelIds = getCompareVisibleModelOrder();
   const results = [];
+  const clipboardSnapshot = imagePaths.length ? captureClipboardSnapshot() : null;
 
-  for (const modelId of visibleModelIds) {
-    results.push(await sendPromptToModel(modelId, trimmedPrompt));
+  try {
+    for (const modelId of visibleModelIds) {
+      results.push(await sendPromptToModel(modelId, trimmedPrompt, imagePaths));
+    }
+  } finally {
+    if (clipboardSnapshot) {
+      restoreClipboardSnapshot(clipboardSnapshot);
+    }
   }
 
   const successCount = results.filter((item) => item.ok).length;
@@ -1538,6 +1856,8 @@ async function sendPromptToVisibleModels(promptText) {
     ok: successCount === results.length && results.length > 0,
     successCount,
     totalCount: results.length,
+    attachmentCount: imagePaths.length,
+    hasPrompt: !!trimmedPrompt,
     results
   };
 }
@@ -1900,6 +2220,39 @@ ipcMain.handle("compareModels:set", (_event, payload) => {
   return { ok: true, payload: getModelsPayload() };
 });
 
+ipcMain.handle("compare:pick-images", async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false, error: "window-unavailable", images: [] };
+  }
+
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select images for compare view",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "Images", extensions: Array.from(COMPARE_IMAGE_EXTENSIONS) }
+      ]
+    });
+
+    if (result.canceled) {
+      return { ok: true, canceled: true, images: [] };
+    }
+
+    const imagePaths = normalizeCompareImagePaths(result.filePaths);
+    return {
+      ok: true,
+      canceled: false,
+      images: imagePaths.map((filePath) => ({
+        path: filePath,
+        name: path.basename(filePath)
+      }))
+    };
+  } catch (err) {
+    safeWarn("Multi-AI-Wrapper: compare image picker failed", err);
+    return { ok: false, error: "picker-failed", images: [] };
+  }
+});
+
 ipcMain.handle("appModels:add", (_event, payload) => {
   const name = typeof payload?.name === "string" ? payload.name.trim() : "";
   const url = typeof payload?.url === "string" ? payload.url.trim() : "";
@@ -2140,7 +2493,7 @@ ipcMain.on("stop-model", (_event, payload) => {
 });
 
 ipcMain.handle("compare:send-prompt", (_event, payload) => {
-  return sendPromptToVisibleModels(payload?.promptText).then((result) => {
+  return sendPromptToVisibleModels(payload).then((result) => {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.focus();

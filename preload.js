@@ -12,7 +12,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("refresh-model", { modelName, hard: !!hard }),
 
   stopModel: (modelName) => ipcRenderer.send("stop-model", { modelName }),
-  sendComparePrompt: (promptText) => ipcRenderer.invoke("compare:send-prompt", { promptText }),
+  sendComparePrompt: (payload) =>
+    ipcRenderer.invoke(
+      "compare:send-prompt",
+      payload && typeof payload === "object"
+        ? payload
+        : { promptText: typeof payload === "string" ? payload : "" }
+    ),
+  pickCompareImages: () => ipcRenderer.invoke("compare:pick-images"),
   toggleCompareHistory: (anchorRect) => ipcRenderer.invoke("compareHistory:toggle", { anchorRect }),
   closeCompareHistory: () => ipcRenderer.send("compareHistory:close"),
   getComparePromptHistory: () => ipcRenderer.invoke("compareHistory:get"),

@@ -1,6 +1,6 @@
-# Multi-AI Wrapper
+# Multi-AI-Wrapper
 
-Multi-AI Wrapper is a lightweight Electron desktop app that puts multiple AI assistants into a single window with simple tabs.
+Multi-AI-Wrapper keeps multiple AI web apps in one Electron window. It supports a normal single-chat tab view and a side-by-side compare view.
 
 Supported services:
 
@@ -9,11 +9,7 @@ Supported services:
 - Copilot
 - Gemini
 - Perplexity
-- Add your own URL to a tab (requires https://)
-
-> Built collaboratively with the help of AI tools.
-
----
+- Custom HTTPS tabs
 
 ## Downloads
 
@@ -21,124 +17,100 @@ Supported services:
 [![Download for macOS](https://img.shields.io/badge/macOS-download-000000?logo=apple&logoColor=white)](https://github.com/Wandering-Wampa/Multi-AI-Wrapper/releases/latest)
 [![Download for Linux](https://img.shields.io/badge/Linux-download-FCC624?logo=linux&logoColor=black)](https://github.com/Wandering-Wampa/Multi-AI-Wrapper/releases/latest)
 
----
+## Screenshots
 
-## Screenshot
+### Single chat view
 
-![Screenshot](assets/screenshot.png)
+![Single chat view](assets/single-view.png)
 
----
+### Compare view
 
-## What it does
+![Compare view](assets/compare-view.png)
 
-- **Unified UI** – One app window with tabs for each AI.
-- **Lazy preloading** – Each service loads the first time you click its tab, then stays resident so switching back is fast.
-- **No API keys required** – It just wraps the existing web apps for each service.
+## Current features
 
----
+- Single-view tabs for built-in providers and custom HTTPS tabs
+- Compare view with side-by-side panes in the same order as the main tab bar
+- Shared compare composer for sending one prompt to every visible pane
+- Shared prompt history
+- Compare image staging: attach in the wrapper, stage into each provider pane, then submit manually in the provider panes
+- Keyboard shortcuts for reload, stop, settings, compare mode, prompt history, and tab switching
+- Settings pages for models, compare view, behavior, appearance, and GitHub links
+- Top-bar status indicators for unloaded, ready, loading, and error states
+- Lazy loading so providers open on first use and stay resident after that
 
 ## How to use
 
-You do **not** need Node.js, npm, or any dev tools to use this app.
+No API keys are required. Sign in to each provider inside the app.
 
 ### Windows
 
-1. Download the Windows build ZIP.
-   - This may come from GitHub Releases or directly from the author.
-2. Unzip it.
-3. Inside the unzipped folder, run:
-
-   `MultiAICockpit.exe`
-
-4. The app will open with a top tab bar:
-   - ChatGPT, Claude, Copilot, Gemini, Perplexity
-
-Click any tab, sign in to that service inside the window if needed, and start using it.
-
-You can pin `MultiAICockpit.exe` to the Start menu or taskbar for quick access.
-
----
+1. Download the latest Windows release.
+2. Extract the ZIP.
+3. Run `Multi-AI-Wrapper-v<version>.exe` inside the extracted folder.
 
 ### macOS
 
-1. Download the macOS build ZIP.
-   - This is typically produced by GitHub Actions and shared with testers.
-2. Unzip it. Inside you’ll see a folder:
+1. Download the latest macOS release.
+2. Extract the ZIP.
+3. Open `Multi-AI-Wrapper-v<version>.app`.
+4. If Gatekeeper blocks the first launch, right-click the app and choose **Open**.
 
-   `MultiAICockpit-darwin-universal/`
+### Linux
 
-3. Inside that folder, run:
+1. Download the latest Linux release.
+2. Extract the archive.
+3. Run the `Multi-AI-Wrapper-v<version>` binary from the extracted folder.
 
-   `MultiAICockpit.app`
+## Platform notes
 
-4. On first launch, macOS Gatekeeper may say the app is from an unidentified developer:
-   - Right-click `MultiAICockpit.app`
-   - Choose **Open**
-   - Confirm the dialog
-
-After the first time, you can open it normally with a double-click.
-
----
-
-## Platform notes (macOS)
+### macOS
 
 **Passkeys / Touch ID**  
-macOS builds of the app currently cannot use system passkeys or Touch ID inside the embedded browser.  
-If your account uses a passkey for login, open the service once in Safari or Chrome to complete the sign-in, then return to the app.
+Electron does not expose macOS system passkeys or Touch ID cleanly inside these embedded provider windows. If your login flow depends on a passkey, finish sign-in once in Safari or Chrome and then return to the app.
 
 **Gemini sign-in / message errors**  
-Gemini may show “something went wrong” or fail to send messages on macOS when used inside the wrapper.  
-This is due to Electron’s WebView limitations on macOS.  
-Signing into Gemini in Safari first generally resolves the issue.
+Gemini can still misbehave inside Electron on macOS. If Gemini fails to sign in or send, complete sign-in once in Safari first and then retry in the app.
 
----
+## How it works
 
-## How it works (high level)
+- The wrapper UI is standard HTML, CSS, and JavaScript.
+- Each provider runs in its own Electron `BrowserView`.
+- Views are created on first use and reused after that.
+- Compare mode lays the provider views out side by side and uses the wrapper composer to stage shared prompts.
 
-- The top bar (tabs) is a simple HTML/JS UI.
-- Each provider runs in its own Electron `BrowserView`:
-  - ChatGPT – https://chatgpt.com/
-  - Claude – https://claude.ai/
-  - Copilot – https://copilot.microsoft.com/
-  - Gemini – https://gemini.google.com/app
-  - Perplexity – https://www.perplexity.ai/
-- Views are created lazily the first time you click each tab, then reused for instant switching.
+Provider URLs:
 
-You sign in inside each tab just like you would in a normal browser.
+- ChatGPT: `https://chatgpt.com/`
+- Claude: `https://claude.ai/`
+- Copilot: `https://copilot.microsoft.com/`
+- Gemini: `https://gemini.google.com/app`
+- Perplexity: `https://www.perplexity.ai/`
 
----
+## Status
 
-### Status
+Usable. Still being cleaned up.
 
-This is an early, experimental tool intended for personal use and tinkering. Expect rough edges.
+## Planned improvements
 
-### Planned improvements
+- ~~Prebuilt releases for Windows, Linux, and macOS attached to GitHub Releases~~
+- ~~Keyboard shortcuts for tab switching, compare mode, prompt history, reload, stop, and settings~~
+- ~~Allow users to reorder the AI assistants and persist tab order after relaunch~~
+- ~~Spellcheck support for text inputs~~
+- ~~Tab status indicators for unloaded, ready, loading, and error states~~
+- ~~Dark/light theme setting~~
+- ~~Settings panel for appearance, behavior, models, compare view, and About links~~
+- ~~User add/remove tabs and custom embedded URLs~~
+- Compare view presets for named pane sets such as `All`, `Research`, or `Coding`
+- Compare header actions for hiding panes without opening Settings
+- ~~Compare view persistence across relaunches and model changes~~
+- ~~Shared prompt history for the compare composer~~
+- ~~Settings split between model management and compare view~~
+- Image and file handling beyond the current staged image workflow
+- Visual cleanup across the header, tabs, compare controls, and Settings
+- Command palette (`Ctrl+K` / `Cmd+K`)
+- Export options for notes or app-owned content
 
-- ~~Prebuilt releases for Windows, Linux and macOS attached to GitHub Releases~~
-- ~~Keyboard shortcuts for tab switching (e.g. Ctrl+1 / Cmd+1 and Ctrl+Teb/Ctrl+Shift+Tab)~~
-- ~~Allow users to reorder the AI assistants, and tab order persists after relaunch~~
-- ~~Spellcheck support – Right-click misspelled words in text inputs to see correction suggestions~~
-- ~~Tab status indicators – Tabs can show lightweight states (e.g. loading) so you can tell what’s happening at a glance~~
-  - ~~Lazy-load aware (Greyed out indicator until a tab is first opened)~~
-  - ~~Green dot indicates a tab is loaded and ready~~
-  - ~~Spinner indicates active loading (click to stop)~~
-  - ~~Red dot indicates load failure (click to retry)~~
-  - ~~Clicking the status dot refreshes the tab (Shift+click = hard refresh OR just use Reload button)~~
-~~- Customizable themes – Dark/light modes~~
-~~- Settings panel – Simple in-app settings for theme options, behavior, and quality-of-life settings~~
-~~- User add or remove tabs/embedded URLs for more variety~~
-- Compare view presets – Save and restore named pane sets like `All`, `Research`, or `Coding`.
-- Compare view quick actions – Keep compare-view controls aligned with main-tab behavior, including reload, close/remove from compare view, and jump directly into that model's single-view tab.
-- Compare view persistence – Preserve compare pane membership and related compare-mode state predictably across relaunches.
-- Shared prompt history – Keep a lightweight history for the compare composer so repeated testing is faster.
-- Keyboard shortcuts – Add dedicated shortcuts for compare mode, compare composer focus, pane cycling, and opening the relevant settings page directly.
-- Settings cleanup – Split model catalog management from compare-view pane management more clearly inside Settings as the app grows.
-- Image/file attachments in compare mode – After the compare workflow is stable, add provider-specific attachment support alongside shared text send.
-- Visual polish pass – Normalize spacing, active states, and component styling across tabs, compare chips, toolbar buttons, and Settings after the workflow work is done.
-- Command palette (Ctrl+K / Cmd+K) – A searchable action launcher to switch tabs, toggle settings (theme/spellcheck), and run common commands without cluttering the UI.
-- Export options (notes/app-owned content) – Export your notes or saved content to Markdown, PDF, or plain text.
+## Future improvements
 
-### Future improvements
-
-- Response alignment tools – Add features that make side-by-side comparison more useful, such as collecting the latest responses into a shared summary panel or showing normalized snippets for easier review.
-
+- Response alignment tools for side-by-side review and summary output

@@ -1,12 +1,12 @@
 {
-  "name": "multi-ai-cockpit",
+  "name": "multi-ai-wrapper",
   "productName": "Multi-AI-Wrapper",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Local Electron wrapper for ChatGPT, Claude, Copilot, Gemini, and Perplexity in one UI",
   "main": "main.js",
   "scripts": {
     "start": "node scripts/start-electron.js",
-    "package-win": "electron-packager . MultiAICockpit-v%npm_package_version% --platform=win32 --arch=x64 --icon=assets/Multi-Ai-logo.ico --out=dist --overwrite",
+    "package-win": "node scripts/package-win.js",
     "package-mac": "node scripts/package-mac.js",
     "package-linux": "node scripts/package-linux.js"
   },
