@@ -449,6 +449,23 @@
       background: rgba(0,0,0,0.2);
     }
 
+    .link-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .link-title {
+      font-size: 14px;
+    }
+
+    .link-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
     .footer {
       padding: 12px 16px;
       border-top: 1px solid var(--border);
@@ -477,6 +494,7 @@
       <div class="nav-title">Settings</div>
       <div class="nav-item active" data-page="general">General</div>
       <div class="nav-item" data-page="models">Models</div>
+      <div class="nav-item" data-page="compare">Compare View</div>
       <div class="nav-item" data-page="behavior">Behavior</div>
       <div class="nav-item" data-page="about">About</div>
     </div>
@@ -539,7 +557,7 @@
         <div class="page" id="page-models">
           <div class="section">
             <h3>Models</h3>
-            <p>Enable/disable models, delete any model, or add a new URL.</p>
+            <p>Enable or disable models, delete models, and add custom model URLs.</p>
 
             <div class="checklist" id="modelsList" aria-label="Models list"></div>
 
@@ -567,6 +585,18 @@
                 <button class="btn primary" id="saveAddBtn" type="button">Add</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Compare View -->
+        <div class="page" id="page-compare">
+          <div class="section">
+            <h3>Compare view panes</h3>
+            <p>Choose which enabled models appear side by side in compare view. Pane order follows the main model tab order.</p>
+
+            <div class="checklist" id="compareModelsList" aria-label="Compare view models list"></div>
+
+            <div class="error-text" id="compareModelsError"></div>
           </div>
         </div>
 
@@ -601,7 +631,18 @@
 
           <div class="section">
             <h3>Keyboard shortcuts</h3>
-            <p>Current shortcuts (read-only for now).</p>
+            <p>Enable app-level shortcuts and view the current bindings.</p>
+
+            <div class="row">
+              <div class="row-left">
+                <div class="row-title">Enable keyboard shortcuts</div>
+                <div class="row-subtitle">Applies even when focus is inside an AI pane.</div>
+              </div>
+              <label class="toggle" title="Enable keyboard shortcuts">
+                <input id="enableKeyboardShortcutsToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
 
             <div class="shortcuts" aria-label="Keyboard shortcuts list">
               <div class="shortcut-row">
@@ -623,6 +664,18 @@
               <div class="shortcut-row">
                 <div>Open settings</div>
                 <div class="kbd"><span class="key">Ctrl</span><span class="key">,</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Toggle compare view</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">Alt</span><span class="key">C</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Focus compare prompt</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">Alt</span><span class="key">L</span></div>
+              </div>
+              <div class="shortcut-row">
+                <div>Open or close prompt history</div>
+                <div class="kbd"><span class="key">Ctrl</span><span class="key">Alt</span><span class="key">H</span></div>
               </div>
             </div>
           </div>
@@ -652,20 +705,29 @@
 
           <div class="section">
             <h3>Links</h3>
-            <p>Placeholders for later (no navigation yet).</p>
+            <p>Open the relevant GitHub pages for this project.</p>
 
             <div class="links">
               <div class="link-row">
-                <div>Release notes</div>
-                <div class="link-pill">placeholder</div>
+                <div class="link-meta">
+                  <div class="link-title">Release notes</div>
+                  <div class="link-subtitle" id="aboutReleasesUrl">—</div>
+                </div>
+                <button class="btn" type="button" id="aboutReleasesBtn">Open</button>
               </div>
               <div class="link-row">
-                <div>Documentation</div>
-                <div class="link-pill">placeholder</div>
+                <div class="link-meta">
+                  <div class="link-title">README</div>
+                  <div class="link-subtitle" id="aboutReadmeUrl">—</div>
+                </div>
+                <button class="btn" type="button" id="aboutReadmeBtn">Open</button>
               </div>
               <div class="link-row">
-                <div>Report an issue</div>
-                <div class="link-pill">placeholder</div>
+                <div class="link-meta">
+                  <div class="link-title">Report an issue</div>
+                  <div class="link-subtitle" id="aboutIssuesUrl">—</div>
+                </div>
+                <button class="btn" type="button" id="aboutIssuesBtn">Open</button>
               </div>
             </div>
           </div>
@@ -840,6 +902,7 @@
     // Models page: render + wiring
     // -----------------------------
     const modelsListEl = document.getElementById("modelsList");
+    const compareModelsListEl = document.getElementById("compareModelsList");
     const addModelBtn = document.getElementById("addModelBtn");
     const addModelForm = document.getElementById("addModelForm");
     const addModelName = document.getElementById("addModelName");
@@ -847,6 +910,7 @@
     const saveAddBtn = document.getElementById("saveAddBtn");
     const cancelAddBtn = document.getElementById("cancelAddBtn");
     const modelsErrorEl = document.getElementById("modelsError");
+    const compareModelsErrorEl = document.getElementById("compareModelsError");
 
     function showModelsError(msg) {
       if (!msg) {
@@ -856,6 +920,16 @@
       }
       modelsErrorEl.style.display = "block";
       modelsErrorEl.textContent = msg;
+    }
+
+    function showCompareModelsError(msg) {
+      if (!msg) {
+        compareModelsErrorEl.style.display = "none";
+        compareModelsErrorEl.textContent = "";
+        return;
+      }
+      compareModelsErrorEl.style.display = "block";
+      compareModelsErrorEl.textContent = msg;
     }
 
     function setAddFormOpen(open) {
@@ -881,9 +955,19 @@
     function renderModelsList(payload) {
       const byId = modelsById(payload);
       const enabled = new Set(Array.isArray(payload?.enabledModels) ? payload.enabledModels : []);
+      const compareIds = new Set(
+        Array.isArray(payload?.compareSelectedModelIds)
+          ? payload.compareSelectedModelIds
+          : Array.isArray(payload?.compareModelIds)
+            ? payload.compareModelIds
+            : []
+      );
+      const compareEligible = new Set(Array.isArray(payload?.compareEligibleModelIds) ? payload.compareEligibleModelIds : []);
       const ordered = computeOrderedIds(payload);
 
       modelsListEl.innerHTML = "";
+      compareModelsListEl.innerHTML = "";
+      showCompareModelsError("");
 
       for (const id of ordered) {
         const m = byId[id];
@@ -970,6 +1054,62 @@
 
         modelsListEl.appendChild(row);
       }
+
+      const compareOrdered = ordered.filter(id => enabled.has(id) && !!byId[id]);
+
+      for (const id of compareOrdered) {
+        const m = byId[id];
+        if (!m) continue;
+
+        const row = document.createElement("div");
+        row.className = "checkrow";
+        row.dataset.compareId = id;
+
+        const leftLabel = document.createElement("label");
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.dataset.compareModel = id;
+        cb.checked = compareIds.has(id);
+        cb.disabled = cb.checked && compareIds.size <= 1;
+
+        const leftCol = document.createElement("div");
+        leftCol.className = "left";
+
+        const nameLine = document.createElement("div");
+        nameLine.textContent = m.name || id;
+
+        const urlLine = document.createElement("div");
+        urlLine.className = "subhint";
+        urlLine.textContent = m.url || "";
+
+        leftCol.appendChild(nameLine);
+        leftCol.appendChild(urlLine);
+
+        leftLabel.appendChild(cb);
+        leftLabel.appendChild(leftCol);
+
+        cb.addEventListener("change", async () => {
+          const cbs = Array.from(compareModelsListEl.querySelectorAll('input[type="checkbox"][data-compare-model]'));
+          const nextVisibleIds = cbs.filter(x => x.checked).map(x => x.dataset.compareModel);
+          const hiddenSelectedIds = Array.from(compareIds).filter(id => !compareEligible.has(id));
+          const nextIds = hiddenSelectedIds.concat(nextVisibleIds);
+
+          showCompareModelsError("");
+
+          try {
+            const res = await window.electronAPI.setCompareModels(nextIds);
+            if (!res?.ok) {
+              showCompareModelsError(res?.error || "Failed to update compare panes.");
+            }
+          } catch {
+            showCompareModelsError("Failed to update compare panes.");
+          }
+        });
+
+        row.appendChild(leftLabel);
+        compareModelsListEl.appendChild(row);
+      }
     }
 
     saveAddBtn.addEventListener("click", async () => {
@@ -1008,6 +1148,7 @@
     // -----------------------------
     const confirmBeforeStopToggle = document.getElementById("confirmBeforeStopToggle");
     const hardReloadToggle = document.getElementById("hardReloadToggle");
+    const enableKeyboardShortcutsToggle = document.getElementById("enableKeyboardShortcutsToggle");
 
     function syncBehaviorUI(settings) {
       if (typeof settings?.confirmBeforeStop === "boolean") {
@@ -1015,6 +1156,9 @@
       }
       if (typeof settings?.hardReloadOnRefresh === "boolean") {
         hardReloadToggle.checked = settings.hardReloadOnRefresh;
+      }
+      if (typeof settings?.enableKeyboardShortcuts === "boolean") {
+        enableKeyboardShortcutsToggle.checked = settings.enableKeyboardShortcuts;
       }
     }
 
@@ -1026,17 +1170,57 @@
       await window.electronAPI.setAppSettings({ hardReloadOnRefresh: !!hardReloadToggle.checked });
     });
 
+    enableKeyboardShortcutsToggle.addEventListener("change", async () => {
+      await window.electronAPI.setAppSettings({ enableKeyboardShortcuts: !!enableKeyboardShortcutsToggle.checked });
+    });
+
     // -----------------------------
     // About wiring
     // -----------------------------
+    let aboutLinks = null;
+
+    async function openAboutLink(url) {
+      if (!url) return;
+      try {
+        await window.electronAPI.openExternal(url);
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(settings): openExternal failed", err);
+      }
+    }
+
     async function loadAboutInfo() {
       try {
         const info = await window.electronAPI.getAppInfo();
         if (info?.appName) document.getElementById("aboutAppName").textContent = info.appName;
         if (info?.appVersion) document.getElementById("aboutAppVersion").textContent = info.appVersion;
         if (info?.electronVersion) document.getElementById("aboutElectronVersion").textContent = info.electronVersion;
+        aboutLinks = info?.links || null;
+
+        const releasesUrl = aboutLinks?.releases || "—";
+        const readmeUrl = aboutLinks?.readme || "—";
+        const issuesUrl = aboutLinks?.issues || "—";
+
+        document.getElementById("aboutReleasesUrl").textContent = releasesUrl;
+        document.getElementById("aboutReadmeUrl").textContent = readmeUrl;
+        document.getElementById("aboutIssuesUrl").textContent = issuesUrl;
+
+        document.getElementById("aboutReleasesBtn").disabled = !aboutLinks?.releases;
+        document.getElementById("aboutReadmeBtn").disabled = !aboutLinks?.readme;
+        document.getElementById("aboutIssuesBtn").disabled = !aboutLinks?.issues;
       } catch (err) { console.warn("Multi-AI-Wrapper(settings): loadAboutInfo failed", err); }
     }
+
+    document.getElementById("aboutReleasesBtn").addEventListener("click", () => {
+      openAboutLink(aboutLinks?.releases);
+    });
+
+    document.getElementById("aboutReadmeBtn").addEventListener("click", () => {
+      openAboutLink(aboutLinks?.readme);
+    });
+
+    document.getElementById("aboutIssuesBtn").addEventListener("click", () => {
+      openAboutLink(aboutLinks?.issues);
+    });
 
     // -----------------------------
     // Initial load + live sync

@@ -1,5 +1,6 @@
 {
   "name": "multi-ai-cockpit",
+  "productName": "Multi-AI-Wrapper",
   "version": "1.0.6",
   "description": "Local Electron wrapper for ChatGPT, Claude, Copilot, Gemini, and Perplexity in one UI",
   "main": "main.js",

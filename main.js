@@ -7,15 +7,20 @@ const {
   shell,
   session,
   nativeTheme,
-  clipboard
+  clipboard,
+  screen
 } = require("electron");
 
 const path = require("path");
 const fs = require("fs");
+const APP_DISPLAY_NAME = "Multi-AI-Wrapper";
 const APP_ICON_PATH = path.join(__dirname, "assets", "Multi-Ai-logo.ico");
+const GITHUB_REPO_URL = "https://github.com/wandering-wampa/Multi-AI-Wrapper";
 
 let mainWindow;
 let settingsWindow;
+let compareHistoryWindow;
+let lastCompareHistoryClosedAt = 0;
 
 // Allow dev runs to isolate profile data (cookies/storage/settings) per project folder.
 const PROFILE_OVERRIDE_DIR =
@@ -48,6 +53,11 @@ const BUILTIN_MODELS = [
 
 const DEFAULT_MODEL_ORDER = BUILTIN_MODELS.map((m) => m.id);
 const STORAGE_PATH = path.join(app.getPath("userData"), "settings.json");
+const COMPARE_PROMPT_HISTORY_LIMIT = 30;
+const COMPARE_HISTORY_WINDOW_WIDTH = 396;
+const COMPARE_HISTORY_WINDOW_HEIGHT = 420;
+const COMPARE_HISTORY_WINDOW_GAP = 10;
+const COMPARE_HISTORY_REOPEN_GUARD_MS = 250;
 
 // -----------------------------
 // Persistence
@@ -188,6 +198,23 @@ function normalizeEnabledModels(rawEnabled, models, modelOrder) {
   return first ? [first] : DEFAULT_MODEL_ORDER.slice();
 }
 
+function normalizeComparePromptHistory(rawHistory) {
+  const input = Array.isArray(rawHistory) ? rawHistory : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const item of input) {
+    const promptText = typeof item === "string" ? item.trim() : "";
+    if (!promptText) continue;
+    if (seen.has(promptText)) continue;
+    seen.add(promptText);
+    out.push(promptText);
+    if (out.length >= COMPARE_PROMPT_HISTORY_LIMIT) break;
+  }
+
+  return out;
+}
+
 // Back-compat note:
 // Existing keys: modelOrder, activeModel, themeSource
 // Existing keys we continue honoring: enabledModels, restoreLastActive, defaultModel, confirmBeforeStop, hardReloadOnRefresh
@@ -219,6 +246,11 @@ let CONFIRM_BEFORE_STOP =
 
 let HARD_RELOAD_ON_REFRESH =
   typeof persisted.hardReloadOnRefresh === "boolean" ? persisted.hardReloadOnRefresh : false;
+let ENABLE_KEYBOARD_SHORTCUTS =
+  typeof persisted.enableKeyboardShortcuts === "boolean" ? persisted.enableKeyboardShortcuts : true;
+
+let LAYOUT_MODE = "tabs";
+let COMPARE_PROMPT_HISTORY = normalizeComparePromptHistory(persisted.comparePromptHistory);
 
 // Theme persistence: "system" | "light" | "dark"
 let THEME_SOURCE = persisted.themeSource || "system";
@@ -232,11 +264,55 @@ function getVisibleModelOrder() {
   return MODEL_ORDER.filter((id) => enabled.has(id) && !!MODELS_BY_ID[id]);
 }
 
+function normalizeCompareSelectionIds(rawCompareIds, models, modelOrder) {
+  const normalizedOrder = normalizeModelOrder(modelOrder, models);
+  const requested = Array.isArray(rawCompareIds)
+    ? new Set(rawCompareIds.filter((id) => typeof id === "string"))
+    : null;
+
+  if (!requested) return normalizedOrder.slice();
+
+  const out = normalizedOrder.filter((id) => requested.has(id));
+  if (out.length) return out;
+
+  return normalizedOrder.length ? [normalizedOrder[0]] : [];
+}
+
+let COMPARE_MODEL_IDS = Array.isArray(persisted.compareModelIds)
+  ? normalizeCompareSelectionIds(persisted.compareModelIds, MODELS, MODEL_ORDER)
+  : getVisibleModelOrder();
+
+COMPARE_MODEL_IDS = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
+
+function getCompareVisibleModelOrder() {
+  const selected = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
+  const enabled = new Set(normalizeEnabledModels(ENABLED_MODELS, MODELS, MODEL_ORDER));
+  const visible = selected.filter((id) => enabled.has(id));
+
+  if (visible.length) return visible;
+
+  const enabledVisible = getVisibleModelOrder();
+  return enabledVisible.length ? [enabledVisible[0]] : [];
+}
+
+function ensureCompareModelsAreValid() {
+  const normalizedCompareIds = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
+  if (normalizedCompareIds.join("|") !== COMPARE_MODEL_IDS.join("|")) {
+    COMPARE_MODEL_IDS = normalizedCompareIds;
+    persistModelsState({ compareModelIds: COMPARE_MODEL_IDS.slice() });
+  }
+}
+
 function getModelsPayload() {
+  const compareVisibleModelOrder = getCompareVisibleModelOrder();
+  const compareSelectedModelOrder = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
   return {
     models: MODELS.map((m) => ({ ...m })),
     modelOrder: MODEL_ORDER.slice(),
     enabledModels: ENABLED_MODELS.slice(),
+    compareModelIds: compareVisibleModelOrder,
+    compareSelectedModelIds: compareSelectedModelOrder,
+    compareEligibleModelIds: getVisibleModelOrder(),
     activeModel
   };
 }
@@ -268,6 +344,45 @@ function persistModelsState(partial) {
   });
 }
 
+function persistComparePromptHistory() {
+  savePersisted({
+    ...loadPersisted(),
+    comparePromptHistory: COMPARE_PROMPT_HISTORY.slice()
+  });
+}
+
+function getComparePromptHistoryPayload() {
+  return {
+    prompts: COMPARE_PROMPT_HISTORY.slice()
+  };
+}
+
+function rememberComparePrompt(promptText) {
+  const normalizedPrompt = typeof promptText === "string" ? promptText.trim() : "";
+  if (!normalizedPrompt) return;
+
+  COMPARE_PROMPT_HISTORY = normalizeComparePromptHistory([
+    normalizedPrompt,
+    ...COMPARE_PROMPT_HISTORY.filter((item) => item !== normalizedPrompt)
+  ]);
+  persistComparePromptHistory();
+}
+
+function removeComparePromptHistoryItem(promptText) {
+  const normalizedPrompt = typeof promptText === "string" ? promptText.trim() : "";
+  if (!normalizedPrompt) return getComparePromptHistoryPayload();
+
+  COMPARE_PROMPT_HISTORY = COMPARE_PROMPT_HISTORY.filter((item) => item !== normalizedPrompt);
+  persistComparePromptHistory();
+  return getComparePromptHistoryPayload();
+}
+
+function clearComparePromptHistory() {
+  COMPARE_PROMPT_HISTORY = [];
+  persistComparePromptHistory();
+  return getComparePromptHistoryPayload();
+}
+
 function ensureActiveModelIsValid() {
   // Ensure we always have at least one enabled model that exists in the catalog.
   const enabledExisting = ENABLED_MODELS.filter((id) => !!MODELS_BY_ID[id]);
@@ -291,6 +406,8 @@ function ensureActiveModelIsValid() {
   if (!enabled.has(activeModel) || !MODELS_BY_ID[activeModel]) {
     activeModel = getVisibleModelOrder()[0] || MODEL_ORDER[0] || MODELS[0]?.id || null;
   }
+
+  ensureCompareModelsAreValid();
 }
 
 function computeInitialActiveModel() {
@@ -319,11 +436,13 @@ let activeModel = computeInitialActiveModel();
 function getAppSettingsPayload() {
   return {
     themeSource: THEME_SOURCE, // single source of truth
+    layoutMode: LAYOUT_MODE,
     enabledModels: ENABLED_MODELS.slice(),
     restoreLastActive: !!RESTORE_LAST_ACTIVE_ON_LAUNCH,
     defaultModel: DEFAULT_MODEL,
     confirmBeforeStop: !!CONFIRM_BEFORE_STOP,
-    hardReloadOnRefresh: !!HARD_RELOAD_ON_REFRESH
+    hardReloadOnRefresh: !!HARD_RELOAD_ON_REFRESH,
+    enableKeyboardShortcuts: !!ENABLE_KEYBOARD_SHORTCUTS
   };
 }
 
@@ -357,9 +476,19 @@ function applySettingsPatch(patch) {
   if (!patch || typeof patch !== "object") return getAppSettingsPayload();
 
   const toPersist = {};
+  let shouldRelayout = false;
 
   if (typeof patch.themeSource === "string") {
     setThemeSource(patch.themeSource);
+  }
+
+  if (typeof patch.layoutMode === "string") {
+    const nextLayoutMode = patch.layoutMode === "compare" ? "compare" : "tabs";
+    if (nextLayoutMode !== LAYOUT_MODE) {
+      LAYOUT_MODE = nextLayoutMode;
+      if (LAYOUT_MODE !== "compare") closeCompareHistoryWindow();
+      shouldRelayout = true;
+    }
   }
 
   if (Array.isArray(patch.enabledModels)) {
@@ -367,6 +496,7 @@ function applySettingsPatch(patch) {
     toPersist.enabledModels = ENABLED_MODELS.slice();
 
     ensureActiveModelIsValid();
+    shouldRelayout = true;
     notifyModelOrder(getVisibleModelOrder());
     notifyActiveModel(activeModel);
     broadcastModels();
@@ -392,8 +522,17 @@ function applySettingsPatch(patch) {
     toPersist.hardReloadOnRefresh = !!HARD_RELOAD_ON_REFRESH;
   }
 
+  if (typeof patch.enableKeyboardShortcuts === "boolean") {
+    ENABLE_KEYBOARD_SHORTCUTS = !!patch.enableKeyboardShortcuts;
+    toPersist.enableKeyboardShortcuts = ENABLE_KEYBOARD_SHORTCUTS;
+  }
+
   if (Object.keys(toPersist).length) {
     persistAppSettings(toPersist);
+  }
+
+  if (shouldRelayout) {
+    applyCurrentLayout({ forceRepaint: true });
   }
 
   broadcastAppSettings();
@@ -453,6 +592,33 @@ function notifyAllModelLoadStates() {
     mainWindow.webContents.send("all-model-load-states", modelLoadState);
   } catch (err) {
     console.warn("Multi-AI-Wrapper: notifyAllModelLoadStates failed", err);
+  }
+}
+
+function notifyCompareHistorySelected(promptText) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send("compare-history-selected", { promptText });
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyCompareHistorySelected failed", err);
+  }
+}
+
+function notifyCompareHistoryVisibility(isOpen) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send("compare-history-visibility-changed", { open: !!isOpen });
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyCompareHistoryVisibility failed", err);
+  }
+}
+
+function notifyShortcutCommand(command) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send("shortcut-command", { command });
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: notifyShortcutCommand failed", err);
   }
 }
 
@@ -559,6 +725,7 @@ function createModelView(modelName) {
   }
 
   const wc = view.webContents;
+  attachShortcutHandler(wc);
 
   // Attach the same context-menu handler to each model view's webContents
   try {
@@ -686,21 +853,23 @@ function createModelView(modelName) {
 }
 
 const TOP_BAR_HEIGHT = 48;
+const COMPARE_COMPOSER_HEIGHT = 132;
 
-function getActiveBounds() {
+function getContentBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   const [width, height] = mainWindow.getContentSize();
+  const composerHeight = LAYOUT_MODE === "compare" ? COMPARE_COMPOSER_HEIGHT : 0;
   return {
     x: 0,
     y: TOP_BAR_HEIGHT,
     width,
-    height: Math.max(0, height - TOP_BAR_HEIGHT)
+    height: Math.max(0, height - TOP_BAR_HEIGHT - composerHeight)
   };
 }
 
 function layoutView(view, { forceRepaint = false } = {}) {
   if (!view) return;
-  const bounds = getActiveBounds();
+  const bounds = getContentBounds();
   if (!bounds) return;
 
   try {
@@ -730,6 +899,85 @@ function layoutActiveView({ forceRepaint = false } = {}) {
   if (!view) return;
   if (!ensureViewAddedOnce(view)) return;
   layoutView(view, { forceRepaint });
+}
+
+function setViewBounds(view, bounds, { forceRepaint = false } = {}) {
+  if (!view || !bounds) return;
+
+  try {
+    view.setBounds(bounds);
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: setViewBounds failed", err);
+    return;
+  }
+
+  if (forceRepaint && process.platform === "win32") {
+    setTimeout(() => {
+      try {
+        if (view && addedViews.has(view)) {
+          view.setBounds(bounds);
+        }
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper: setViewBounds repaint failed", err);
+      }
+    }, 0);
+  }
+}
+
+function layoutCompareViews({ forceRepaint = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const visibleModelIds = getCompareVisibleModelOrder();
+  const bounds = getContentBounds();
+  if (!bounds || !visibleModelIds.length) return;
+
+  const compareViews = [];
+  for (const modelId of visibleModelIds) {
+    let view = views[modelId];
+    if (!view) view = createModelView(modelId);
+    if (!view) continue;
+    if (!ensureViewAddedOnce(view)) continue;
+    compareViews.push({ modelId, view });
+  }
+
+  const compareSet = new Set(compareViews.map(({ view }) => view));
+  for (const view of Array.from(addedViews)) {
+    if (!compareSet.has(view)) hideView(view);
+  }
+
+  if (!compareViews.length) return;
+
+  const widthPerView = Math.floor(bounds.width / compareViews.length);
+  let currentX = bounds.x;
+
+  compareViews.forEach(({ view }, index) => {
+    const isLast = index === compareViews.length - 1;
+    const nextWidth = isLast ? Math.max(0, bounds.x + bounds.width - currentX) : widthPerView;
+    setViewBounds(
+      view,
+      {
+        x: currentX,
+        y: bounds.y,
+        width: Math.max(0, nextWidth),
+        height: bounds.height
+      },
+      { forceRepaint }
+    );
+    currentX += widthPerView;
+  });
+}
+
+function applyCurrentLayout({ forceRepaint = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (LAYOUT_MODE === "compare") {
+    layoutCompareViews({ forceRepaint });
+    return;
+  }
+
+  if (activeModel) {
+    showView(activeModel);
+  }
 }
 
 function runSoftReflowOnWebContents(wc) {
@@ -838,6 +1086,12 @@ function showView(modelName) {
     });
   }
 
+  if (LAYOUT_MODE === "compare") {
+    applyCurrentLayout({ forceRepaint: true });
+    notifyActiveModel(activeModel);
+    return;
+  }
+
   if (!ensureViewAddedOnce(view)) return;
   showOnlyView(view);
 
@@ -903,6 +1157,389 @@ function stopModel(modelName) {
   } catch (err) {
     console.warn("Multi-AI-Wrapper: stopModel failed", err);
   }
+}
+
+const BROADCAST_SUPPORTED_MODEL_IDS = new Set(["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
+
+function buildProviderDomHelperPreamble(modelId) {
+  const encodedModelId = JSON.stringify(modelId);
+  return `
+    const modelId = ${encodedModelId};
+    const providerConfigs = {
+      chatgpt: {
+        inputSelectors: ["#prompt-textarea", "textarea", "[contenteditable='true'][role='textbox']", "[contenteditable='true']"],
+        sendButtonSelectors: ["button[data-testid='send-button']", "button[aria-label*='Send']", "form button[type='submit']"]
+      },
+      claude: {
+        inputSelectors: ["div[contenteditable='true'][role='textbox']", "div[contenteditable='true']", "textarea"],
+        sendButtonSelectors: ["button[aria-label*='Send']", "button[title*='Send']", "form button[type='submit']"]
+      },
+      copilot: {
+        inputSelectors: ["textarea", "div[contenteditable='true'][role='textbox']", "[role='textbox'][contenteditable='true']"],
+        sendButtonSelectors: ["button[aria-label*='Send']", "button[title*='Send']", "form button[type='submit']"]
+      },
+      gemini: {
+        inputSelectors: ["div.ql-editor[contenteditable='true']", "div[contenteditable='true'][role='textbox']", "textarea", "rich-textarea div[contenteditable='true']"],
+        sendButtonSelectors: ["button[aria-label*='Send']", "button[mattooltip*='Send']", "form button[type='submit']"]
+      },
+      perplexity: {
+        inputSelectors: ["textarea", "div[contenteditable='true'][role='textbox']", "[role='textbox'][contenteditable='true']"],
+        sendButtonSelectors: ["button[aria-label*='Submit']", "button[aria-label*='Send']", "form button[type='submit']"]
+      }
+    };
+
+    const config = providerConfigs[modelId] || {
+      inputSelectors: ["textarea", "div[contenteditable='true'][role='textbox']", "[role='textbox'][contenteditable='true']", "[contenteditable='true']"],
+      sendButtonSelectors: ["button[aria-label*='Send']", "button[type='submit']", "form button[type='submit']"]
+    };
+
+    function isVisible(el) {
+      if (!el || !el.isConnected) return false;
+      const style = window.getComputedStyle(el);
+      if (!style || style.visibility === "hidden" || style.display === "none") return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    function uniqueElements(elements) {
+      return Array.from(new Set(elements.filter(Boolean)));
+    }
+
+    function queryVisible(selectors, root) {
+      const scope = root || document;
+      const out = [];
+      for (const selector of selectors) {
+        try {
+          out.push(...Array.from(scope.querySelectorAll(selector)));
+        } catch (_) {}
+      }
+      return uniqueElements(out).filter(isVisible);
+    }
+
+    function pickBottomMost(elements) {
+      return elements
+        .slice()
+        .sort((a, b) => {
+          const aRect = a.getBoundingClientRect();
+          const bRect = b.getBoundingClientRect();
+          if (aRect.top !== bRect.top) return bRect.top - aRect.top;
+          return bRect.left - aRect.left;
+        })[0] || null;
+    }
+
+    function getTextValue(el) {
+      if (!el) return "";
+      if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+        return typeof el.value === "string" ? el.value : "";
+      }
+      return typeof el.innerText === "string" ? el.innerText : (typeof el.textContent === "string" ? el.textContent : "");
+    }
+
+    function findInputElement() {
+      const active = document.activeElement;
+      if (active && isVisible(active)) {
+        if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement || active.isContentEditable) {
+          return active;
+        }
+      }
+
+      const candidates = queryVisible(config.inputSelectors);
+      if (candidates.length) return pickBottomMost(candidates);
+
+      const fallback = queryVisible([
+        "textarea:not([disabled])",
+        "input[type='text']:not([disabled])",
+        "[contenteditable='true']",
+        "[role='textbox']"
+      ]);
+      return pickBottomMost(fallback);
+    }
+
+    function setNativeValue(el, value) {
+      const prototype = Object.getPrototypeOf(el);
+      const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "value");
+      if (descriptor && typeof descriptor.set === "function") {
+        descriptor.set.call(el, value);
+      } else {
+        el.value = value;
+      }
+    }
+
+    function dispatchInputEvents(el, inputType, data) {
+      try {
+        el.dispatchEvent(new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          inputType: inputType || "insertText",
+          data: data == null ? null : data
+        }));
+      } catch (_) {}
+
+      try {
+        el.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          inputType: inputType || "insertText",
+          data: data == null ? null : data
+        }));
+      } catch (_) {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function clearPromptValue(el) {
+      el.focus();
+
+      if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+        try { el.select(); } catch (_) {}
+        setNativeValue(el, "");
+        dispatchInputEvents(el, "deleteContentBackward", null);
+        return true;
+      }
+
+      if (el.isContentEditable) {
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.execCommand("delete", false);
+        } catch (_) {
+          el.textContent = "";
+        }
+
+        if (getTextValue(el).trim()) {
+          el.textContent = "";
+        }
+
+        dispatchInputEvents(el, "deleteContentBackward", null);
+        return true;
+      }
+
+      return false;
+    }
+
+    function isClickableButton(el) {
+      if (!el || !isVisible(el)) return false;
+      if (el.disabled) return false;
+      if (el.getAttribute("aria-disabled") === "true") return false;
+      return true;
+    }
+
+    function findSendButton(inputEl) {
+      const form = inputEl?.closest?.("form");
+      const formCandidates = form ? queryVisible(config.sendButtonSelectors, form) : [];
+      if (formCandidates.length) {
+        const button = pickBottomMost(formCandidates.filter(isClickableButton));
+        if (button) return button;
+      }
+
+      const providerCandidates = queryVisible(config.sendButtonSelectors);
+      if (providerCandidates.length) {
+        const button = pickBottomMost(providerCandidates.filter(isClickableButton));
+        if (button) return button;
+      }
+
+      return null;
+    }
+  `;
+}
+
+function buildPreparePromptTargetScript(modelId) {
+  return `(function () {
+    ${buildProviderDomHelperPreamble(modelId)}
+
+    const inputEl = findInputElement();
+    if (!inputEl) {
+      return { ok: false, error: "composer-not-found" };
+    }
+
+    if (!clearPromptValue(inputEl)) {
+      return { ok: false, error: "composer-clear-failed" };
+    }
+
+    inputEl.focus();
+    return {
+      ok: true,
+      inputTag: inputEl.tagName,
+      isContentEditable: !!inputEl.isContentEditable
+    };
+  })();`;
+}
+
+function buildInspectPromptStateScript(modelId, promptText) {
+  const encodedModelId = JSON.stringify(modelId);
+  const encodedPromptText = JSON.stringify(promptText);
+
+  return `(function () {
+    ${buildProviderDomHelperPreamble(modelId)}
+
+    const promptText = ${encodedPromptText};
+
+    const inputEl = findInputElement();
+    if (!inputEl) {
+      return { ok: false, error: "composer-not-found" };
+    }
+
+    const value = getTextValue(inputEl).trim();
+    const expected = promptText.trim();
+    return {
+      ok: true,
+      empty: value.length === 0,
+      exactMatch: value === expected,
+      includesPrompt: expected.length > 0 && value.includes(expected),
+      valueLength: value.length
+    };
+  })();`;
+}
+
+function buildClickSendButtonScript(modelId) {
+  return `(function () {
+    ${buildProviderDomHelperPreamble(modelId)}
+
+    const inputEl = findInputElement();
+    if (!inputEl) {
+      return { ok: false, error: "composer-not-found" };
+    }
+
+    const sendButton = findSendButton(inputEl);
+    if (!sendButton) {
+      return { ok: false, error: "send-button-not-found" };
+    }
+
+    inputEl.focus();
+    sendButton.click();
+    return { ok: true, method: "button" };
+  })();`;
+}
+
+async function sendPromptToModel(modelId, promptText) {
+  if (!MODELS_BY_ID[modelId]) {
+    return { modelId, ok: false, error: "unknown-model" };
+  }
+
+  if (!BROADCAST_SUPPORTED_MODEL_IDS.has(modelId) || !MODELS_BY_ID[modelId].builtIn) {
+    return { modelId, ok: false, error: "unsupported-model" };
+  }
+
+  let view = views[modelId];
+  if (!view) view = createModelView(modelId);
+  if (!view) return { modelId, ok: false, error: "view-unavailable" };
+
+  const state = ensureLoadState(modelId);
+  if (!state.initialized || state.loading) {
+    return { modelId, ok: false, error: "model-not-ready" };
+  }
+
+  try {
+    try {
+      view.webContents.focus();
+    } catch (err) {
+      console.warn(`Multi-AI-Wrapper: focus failed for ${modelId}`, err);
+    }
+
+    const prepared = await view.webContents.executeJavaScript(
+      buildPreparePromptTargetScript(modelId),
+      true
+    );
+
+    if (!prepared || prepared.ok !== true) {
+      return {
+        modelId,
+        ok: false,
+        error: prepared?.error || "prepare-failed"
+      };
+    }
+
+    await view.webContents.insertText(promptText);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    let inspect = await view.webContents.executeJavaScript(
+      buildInspectPromptStateScript(modelId, promptText),
+      true
+    );
+
+    if (inspect?.exactMatch || inspect?.includesPrompt) {
+      try {
+        view.webContents.sendInputEvent({ type: "rawKeyDown", keyCode: "Enter" });
+        view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+      } catch (err) {
+        console.warn(`Multi-AI-Wrapper: sendInputEvent Enter failed for ${modelId}`, err);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      inspect = await view.webContents.executeJavaScript(
+        buildInspectPromptStateScript(modelId, promptText),
+        true
+      );
+    }
+
+    if (inspect?.empty) {
+      return {
+        modelId,
+        ok: true,
+        method: "native-enter"
+      };
+    }
+
+    if (inspect?.exactMatch || inspect?.includesPrompt) {
+      const clicked = await view.webContents.executeJavaScript(
+        buildClickSendButtonScript(modelId),
+        true
+      );
+
+      if (clicked?.ok) {
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        inspect = await view.webContents.executeJavaScript(
+          buildInspectPromptStateScript(modelId, promptText),
+          true
+        );
+      }
+    }
+
+    if (inspect?.empty) {
+      return {
+        modelId,
+        ok: true,
+        method: "button"
+      };
+    }
+
+    return {
+      modelId,
+      ok: false,
+      error: "submit-not-confirmed"
+    };
+  } catch (err) {
+    console.warn(`Multi-AI-Wrapper: sendPromptToModel failed for ${modelId}`, err);
+    return { modelId, ok: false, error: "execute-javascript-failed" };
+  }
+}
+
+async function sendPromptToVisibleModels(promptText) {
+  const trimmedPrompt = typeof promptText === "string" ? promptText.trim() : "";
+  if (!trimmedPrompt) {
+    return { ok: false, error: "empty-prompt", results: [] };
+  }
+
+  rememberComparePrompt(trimmedPrompt);
+
+  const visibleModelIds = getCompareVisibleModelOrder();
+  const results = [];
+
+  for (const modelId of visibleModelIds) {
+    results.push(await sendPromptToModel(modelId, trimmedPrompt));
+  }
+
+  const successCount = results.filter((item) => item.ok).length;
+  return {
+    ok: successCount === results.length && results.length > 0,
+    successCount,
+    totalCount: results.length,
+    results
+  };
 }
 
 // -----------------------------
@@ -1009,11 +1646,259 @@ function closeSettingsWindow() {
   }
 }
 
+function sanitizeAnchorRect(anchorRect) {
+  if (!anchorRect || typeof anchorRect !== "object") return null;
+
+  const left = Number(anchorRect.left);
+  const top = Number(anchorRect.top);
+  const width = Number(anchorRect.width);
+  const height = Number(anchorRect.height);
+
+  if (![left, top, width, height].every(Number.isFinite)) return null;
+
+  return {
+    left,
+    top,
+    width: Math.max(0, width),
+    height: Math.max(0, height),
+    right: Number.isFinite(Number(anchorRect.right)) ? Number(anchorRect.right) : left + width,
+    bottom: Number.isFinite(Number(anchorRect.bottom)) ? Number(anchorRect.bottom) : top + height
+  };
+}
+
+function getCompareHistoryWindowBounds(anchorRect) {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+
+  const contentBounds = mainWindow.getContentBounds();
+  const safeAnchor = sanitizeAnchorRect(anchorRect) || {
+    left: contentBounds.width - 220,
+    top: contentBounds.height - 140,
+    width: 42,
+    height: 42,
+    right: contentBounds.width - 178,
+    bottom: contentBounds.height - 98
+  };
+
+  const preferredX = Math.round(
+    contentBounds.x + safeAnchor.right - COMPARE_HISTORY_WINDOW_WIDTH
+  );
+  const preferredY = Math.round(
+    contentBounds.y + safeAnchor.top - COMPARE_HISTORY_WINDOW_HEIGHT - COMPARE_HISTORY_WINDOW_GAP
+  );
+
+  const display = screen.getDisplayMatching(contentBounds);
+  const workArea = display?.workArea || contentBounds;
+
+  const minX = workArea.x + 8;
+  const maxX = workArea.x + workArea.width - COMPARE_HISTORY_WINDOW_WIDTH - 8;
+  const minY = workArea.y + 8;
+  const maxY = workArea.y + workArea.height - COMPARE_HISTORY_WINDOW_HEIGHT - 8;
+
+  return {
+    x: Math.min(Math.max(preferredX, minX), Math.max(minX, maxX)),
+    y: Math.min(Math.max(preferredY, minY), Math.max(minY, maxY)),
+    width: COMPARE_HISTORY_WINDOW_WIDTH,
+    height: COMPARE_HISTORY_WINDOW_HEIGHT
+  };
+}
+
+function closeCompareHistoryWindow() {
+  if (!compareHistoryWindow || compareHistoryWindow.isDestroyed()) {
+    compareHistoryWindow = null;
+    lastCompareHistoryClosedAt = Date.now();
+    notifyCompareHistoryVisibility(false);
+    return;
+  }
+
+  try {
+    compareHistoryWindow.close();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: closeCompareHistoryWindow failed", err);
+    compareHistoryWindow = null;
+    lastCompareHistoryClosedAt = Date.now();
+    notifyCompareHistoryVisibility(false);
+  }
+}
+
+function openCompareHistoryWindow(anchorRect) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  if (compareHistoryWindow && !compareHistoryWindow.isDestroyed()) {
+    closeCompareHistoryWindow();
+    return false;
+  }
+
+  if (Date.now() - lastCompareHistoryClosedAt < COMPARE_HISTORY_REOPEN_GUARD_MS) {
+    return false;
+  }
+
+  const bounds = getCompareHistoryWindowBounds(anchorRect);
+  if (!bounds) return false;
+
+  compareHistoryWindow = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    frame: false,
+    transparent: false,
+    backgroundColor: "#121212",
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    movable: false,
+    skipTaskbar: true,
+    autoHideMenuBar: true,
+    icon: APP_ICON_PATH,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  compareHistoryWindow.loadFile(path.join(__dirname, "prompt-history.html"));
+
+  compareHistoryWindow.once("ready-to-show", () => {
+    if (!compareHistoryWindow || compareHistoryWindow.isDestroyed()) return;
+    compareHistoryWindow.show();
+    try {
+      compareHistoryWindow.focus();
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: compareHistoryWindow.focus failed", err);
+    }
+    notifyCompareHistoryVisibility(true);
+  });
+
+  compareHistoryWindow.on("blur", () => {
+    closeCompareHistoryWindow();
+  });
+
+  compareHistoryWindow.on("closed", () => {
+    compareHistoryWindow = null;
+    lastCompareHistoryClosedAt = Date.now();
+    notifyCompareHistoryVisibility(false);
+  });
+
+  return true;
+}
+
+function getVisibleNavigationOrder() {
+  const visible = getVisibleModelOrder();
+  return visible.length ? visible : [];
+}
+
+function focusMainRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.focus();
+    mainWindow.webContents.focus();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: focusMainRenderer failed", err);
+  }
+}
+
+function activateAdjacentModel(direction) {
+  const visible = getVisibleNavigationOrder();
+  if (!visible.length) return false;
+
+  const currentIndex = visible.indexOf(activeModel);
+  const startIndex = currentIndex >= 0 ? currentIndex : 0;
+  const delta = direction < 0 ? -1 : 1;
+  const nextIndex = (startIndex + delta + visible.length) % visible.length;
+  const nextModelId = visible[nextIndex];
+  if (!nextModelId) return false;
+
+  showView(nextModelId);
+  return true;
+}
+
+function handleShortcutInput(input) {
+  if (!ENABLE_KEYBOARD_SHORTCUTS || !input) return false;
+
+  const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
+  const control = !!input.control || !!input.meta;
+  const shift = !!input.shift;
+  const alt = !!input.alt;
+
+  if (control && !shift && !alt && key === ",") {
+    openSettingsWindow();
+    return true;
+  }
+
+  if (control && !shift && !alt && key === "tab") {
+    return activateAdjacentModel(1);
+  }
+
+  if (control && shift && !alt && key === "tab") {
+    return activateAdjacentModel(-1);
+  }
+
+  if (control && !shift && !alt && key === "r") {
+    refreshModel(activeModel, !!HARD_RELOAD_ON_REFRESH);
+    return true;
+  }
+
+  if (!control && !shift && !alt && key === "escape") {
+    const state = activeModel ? ensureLoadState(activeModel) : null;
+    if (!state?.loading) return false;
+    stopModel(activeModel);
+    return true;
+  }
+
+  if (control && alt && !shift && key === "c") {
+    applySettingsPatch({ layoutMode: LAYOUT_MODE === "compare" ? "tabs" : "compare" });
+    return true;
+  }
+
+  if (control && alt && !shift && key === "l") {
+    if (LAYOUT_MODE !== "compare") return false;
+    focusMainRenderer();
+    notifyShortcutCommand("focus-compare-composer");
+    return true;
+  }
+
+  if (control && alt && !shift && key === "h") {
+    if (LAYOUT_MODE !== "compare") return false;
+    focusMainRenderer();
+    notifyShortcutCommand("toggle-compare-history");
+    return true;
+  }
+
+  return false;
+}
+
+function attachShortcutHandler(webContents) {
+  if (!webContents || webContents.isDestroyed()) return;
+
+  webContents.on("before-input-event", (event, input) => {
+    if (input?.type !== "keyDown") return;
+    if (!handleShortcutInput(input)) return;
+    event.preventDefault();
+  });
+}
+
 // -----------------------------
 // Models: IPC (Settings UI)
 // -----------------------------
 
 ipcMain.handle("appModels:get", () => getModelsPayload());
+
+ipcMain.handle("compareModels:set", (_event, payload) => {
+  const requestedIds = Array.isArray(payload?.modelIds) ? payload.modelIds : [];
+  const normalizedIds = normalizeCompareSelectionIds(requestedIds, MODELS, MODEL_ORDER);
+
+  COMPARE_MODEL_IDS = normalizedIds;
+  persistModelsState({ compareModelIds: COMPARE_MODEL_IDS.slice() });
+  applyCurrentLayout({ forceRepaint: true });
+  broadcastModels();
+
+  return { ok: true, payload: getModelsPayload() };
+});
 
 ipcMain.handle("appModels:add", (_event, payload) => {
   const name = typeof payload?.name === "string" ? payload.name.trim() : "";
@@ -1050,6 +1935,7 @@ ipcMain.handle("appModels:add", (_event, payload) => {
   });
 
   ensureActiveModelIsValid();
+  applyCurrentLayout({ forceRepaint: true });
 
   notifyModelOrder(getVisibleModelOrder());
   notifyActiveModel(activeModel);
@@ -1118,11 +2004,9 @@ ipcMain.handle("appModels:delete", (_event, payload) => {
   ensureActiveModelIsValid();
 
   try {
-    if (mainWindow && !mainWindow.isDestroyed() && activeModel) {
-      showView(activeModel);
-    }
+    applyCurrentLayout({ forceRepaint: true });
   } catch (err) {
-    console.warn("Multi-AI-Wrapper: showView after delete failed", err);
+    console.warn("Multi-AI-Wrapper: applyCurrentLayout after delete failed", err);
   }
 
   notifyModelOrder(getVisibleModelOrder());
@@ -1137,8 +2021,27 @@ ipcMain.handle("appInfo:get", () => {
   return {
     appName: app.getName(),
     appVersion: app.getVersion(),
-    electronVersion: process.versions?.electron || ""
+    electronVersion: process.versions?.electron || "",
+    links: {
+      repository: GITHUB_REPO_URL,
+      readme: `${GITHUB_REPO_URL}#readme`,
+      releases: `${GITHUB_REPO_URL}/releases`,
+      issues: `${GITHUB_REPO_URL}/issues`
+    }
   };
+});
+
+ipcMain.handle("shell:openExternal", async (_event, payload) => {
+  const url = typeof payload?.url === "string" ? payload.url.trim() : "";
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "invalid-url" };
+
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: shell.openExternal failed", err);
+    return { ok: false, error: "open-failed" };
+  }
 });
 
 // settings window
@@ -1149,6 +2052,31 @@ ipcMain.handle("settings:open", () => {
 
 ipcMain.on("settings:close", () => {
   closeSettingsWindow();
+});
+
+// compare history popup
+ipcMain.handle("compareHistory:toggle", (_event, payload) => {
+  const open = openCompareHistoryWindow(payload?.anchorRect);
+  return { open };
+});
+
+ipcMain.on("compareHistory:close", () => {
+  closeCompareHistoryWindow();
+});
+
+ipcMain.handle("compareHistory:get", () => getComparePromptHistoryPayload());
+ipcMain.handle("compareHistory:remove", (_event, payload) =>
+  removeComparePromptHistoryItem(payload?.promptText)
+);
+ipcMain.handle("compareHistory:clear", () => clearComparePromptHistory());
+ipcMain.handle("compareHistory:select", (_event, payload) => {
+  const promptText = typeof payload?.promptText === "string" ? payload.promptText.trim() : "";
+  if (!promptText) return { ok: false, error: "missing-prompt" };
+
+  rememberComparePrompt(promptText);
+  notifyCompareHistorySelected(promptText);
+  closeCompareHistoryWindow();
+  return { ok: true };
 });
 
 // -----------------------------
@@ -1190,6 +2118,7 @@ ipcMain.on("set-model-order", (_event, order) => {
   persistModelsState({ modelOrder: MODEL_ORDER.slice() });
 
   ensureActiveModelIsValid();
+  applyCurrentLayout({ forceRepaint: true });
 
   notifyModelOrder(getVisibleModelOrder());
   notifyActiveModel(activeModel);
@@ -1208,6 +2137,29 @@ ipcMain.on("refresh-model", (_event, payload) => {
 ipcMain.on("stop-model", (_event, payload) => {
   if (!payload || !payload.modelName) return;
   stopModel(payload.modelName);
+});
+
+ipcMain.handle("compare:send-prompt", (_event, payload) => {
+  return sendPromptToVisibleModels(payload?.promptText).then((result) => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.focus();
+        mainWindow.webContents.focus();
+        setTimeout(() => {
+          try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.focus();
+            }
+          } catch (err) {
+            console.warn("Multi-AI-Wrapper: delayed webContents focus failed", err);
+          }
+        }, 60);
+      }
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: focus after compare send failed", err);
+    }
+    return result;
+  });
 });
 
 // theme
@@ -1232,8 +2184,9 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#111111",
-    title: "Multi-AI Cockpit",
+    title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1241,41 +2194,45 @@ function createWindow() {
     }
   });
 
-  mainWindow.on("move", syncSettingsBounds);
+  mainWindow.setMenuBarVisibility(false);
+
+  attachShortcutHandler(mainWindow.webContents);
+
+  mainWindow.on("move", () => {
+    syncSettingsBounds();
+    closeCompareHistoryWindow();
+  });
   mainWindow.on("resize", () => {
     syncSettingsBounds();
+    closeCompareHistoryWindow();
 
-    // Layout the active view without altering state/persistence.
     try {
-      layoutActiveView({ forceRepaint: true });
-      const activeView = views[activeModel];
-      if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
+      applyCurrentLayout({ forceRepaint: true });
+      const viewIds = LAYOUT_MODE === "compare" ? getCompareVisibleModelOrder() : [activeModel];
+      for (const modelId of viewIds) {
+        const view = views[modelId];
+        if (view && addedViews.has(view)) runSoftReflowOnWebContents(view.webContents);
+      }
     } catch (err) {
-      console.warn("Multi-AI-Wrapper: layoutActiveView on resize failed", err);
+      console.warn("Multi-AI-Wrapper: applyCurrentLayout on resize failed", err);
     }
   });
   
   // Also trigger reflow on maximize/unmaximize/fullscreen transitions
-  mainWindow.on("maximize", () => {
-    layoutActiveView({ forceRepaint: true });
-    const activeView = views[activeModel];
-    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
-  });
-  mainWindow.on("unmaximize", () => {
-    layoutActiveView({ forceRepaint: true });
-    const activeView = views[activeModel];
-    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
-  });
-  mainWindow.on("enter-full-screen", () => {
-    layoutActiveView({ forceRepaint: true });
-    const activeView = views[activeModel];
-    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
-  });
-  mainWindow.on("leave-full-screen", () => {
-    layoutActiveView({ forceRepaint: true });
-    const activeView = views[activeModel];
-    if (activeView && addedViews.has(activeView)) runSoftReflowOnWebContents(activeView.webContents);
-  });
+  const relayoutAndReflowVisibleViews = () => {
+    closeCompareHistoryWindow();
+    applyCurrentLayout({ forceRepaint: true });
+    const viewIds = LAYOUT_MODE === "compare" ? getCompareVisibleModelOrder() : [activeModel];
+    for (const modelId of viewIds) {
+      const view = views[modelId];
+      if (view && addedViews.has(view)) runSoftReflowOnWebContents(view.webContents);
+    }
+  };
+
+  mainWindow.on("maximize", relayoutAndReflowVisibleViews);
+  mainWindow.on("unmaximize", relayoutAndReflowVisibleViews);
+  mainWindow.on("enter-full-screen", relayoutAndReflowVisibleViews);
+  mainWindow.on("leave-full-screen", relayoutAndReflowVisibleViews);
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 
@@ -1313,11 +2270,10 @@ function createWindow() {
   });
 
   ensureActiveModelIsValid();
-  if (activeModel) {
-    showView(activeModel);
-  }
+  applyCurrentLayout({ forceRepaint: true });
 
   mainWindow.on("closed", () => {
+    closeCompareHistoryWindow();
     mainWindow = null;
     addedViews.clear();
   });
@@ -1428,7 +2384,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   if (process.platform === "win32") {
-    app.setAppUserModelId("com.multi-ai-cockpit.app");
+    app.setAppUserModelId("com.multi-ai-wrapper.app");
   }
 
   try {

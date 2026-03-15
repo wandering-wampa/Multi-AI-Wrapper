@@ -9,9 +9,12 @@ const modelStates = Object.create(null);
 // Behavior settings (defaults match main.js)
 let confirmBeforeStop = false;
 let hardReloadOnRefresh = false;
+let layoutMode = "tabs";
 
 // Models catalog cache (id -> { id, name, url, builtIn })
 let modelsById = Object.create(null);
+let compareModelIds = [];
+let compareHistoryOpen = false;
 
 // last tab order we rendered (array of model ids)
 let lastTabOrder = [];
@@ -23,11 +26,49 @@ let lastTabOrder = [];
 function applyAppSettingsToRenderer(settings) {
   if (!settings || typeof settings !== "object") return;
 
+  if (settings.layoutMode === "compare" || settings.layoutMode === "tabs") {
+    layoutMode = settings.layoutMode;
+    applyLayoutModeToDOM(layoutMode);
+  }
+
   if (typeof settings.confirmBeforeStop === "boolean") {
     confirmBeforeStop = settings.confirmBeforeStop;
   }
   if (typeof settings.hardReloadOnRefresh === "boolean") {
     hardReloadOnRefresh = settings.hardReloadOnRefresh;
+  }
+}
+
+function applyLayoutModeToDOM(mode) {
+  const compareMode = mode === "compare" ? "compare" : "tabs";
+  document.body.setAttribute("data-layout-mode", compareMode);
+
+  const compareButton = document.getElementById("compare-mode-button");
+  if (compareButton) {
+    const active = compareMode === "compare";
+    const label = active ? "Single view" : "Compare view";
+    const labelEl = document.getElementById("compare-mode-button-label");
+    compareButton.classList.toggle("active", active);
+    compareButton.setAttribute("aria-pressed", active ? "true" : "false");
+    compareButton.title = label;
+    compareButton.setAttribute("aria-label", label);
+    if (labelEl) labelEl.textContent = active ? "Single" : "Compare";
+  }
+
+  const composer = document.getElementById("compare-composer");
+  if (composer) {
+    composer.setAttribute("aria-hidden", compareMode === "compare" ? "false" : "true");
+  }
+
+  const compareHeaders = document.getElementById("compare-pane-headers");
+  if (compareHeaders) {
+    compareHeaders.setAttribute("aria-hidden", compareMode === "compare" ? "false" : "true");
+  }
+
+  if (compareMode === "compare") {
+    requestAnimationFrame(() => {
+      renderCompareHeaders(compareModelIds);
+    });
   }
 }
 
@@ -53,33 +94,10 @@ function applyThemeToDOM(payload) {
   document.documentElement.setAttribute("data-theme", effective);
 }
 
-function initThemeToggle() {
-  const btn = document.getElementById("theme-toggle");
-  if (!btn) return;
-
-  // initial paint
+function initThemeSync() {
   window.electronAPI.getTheme()
     .then(applyThemeToDOM)
     .catch((err) => { console.warn("Multi-AI-Wrapper(renderer): getTheme failed, defaulting to dark", err); document.documentElement.setAttribute("data-theme", "dark"); });
-
-  btn.addEventListener("click", async () => {
-    try {
-      const current = await window.electronAPI.getTheme();
-
-      // Toggle behavior:
-      // - if currently system: flip opposite of effective OS theme to force override
-      // - if currently light/dark: flip to the other
-      let nextSource;
-      if (current.source === "system") {
-        nextSource = current.shouldUseDarkColors ? "light" : "dark";
-      } else {
-        nextSource = current.source === "dark" ? "light" : "dark";
-      }
-
-      const updated = await window.electronAPI.setTheme(nextSource);
-      applyThemeToDOM(updated);
-    } catch (err) { console.warn("Multi-AI-Wrapper(renderer): theme toggle failed", err); }
-  });
 
   window.electronAPI.onThemeChanged((payload) => {
     applyThemeToDOM(payload);
@@ -101,6 +119,159 @@ function initSettingsButton() {
   });
 }
 
+function setCompareStatus(message) {
+  const statusEl = document.getElementById("compare-status");
+  if (!statusEl) return;
+  statusEl.textContent = message || "";
+}
+
+function applyCompareHistoryVisibility(open) {
+  compareHistoryOpen = !!open;
+  const historyButton = document.getElementById("compare-history-button");
+  if (!historyButton) return;
+  historyButton.classList.toggle("active", compareHistoryOpen);
+  historyButton.setAttribute("aria-expanded", compareHistoryOpen ? "true" : "false");
+}
+
+function initCompareModeButton() {
+  const btn = document.getElementById("compare-mode-button");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      const nextMode = layoutMode === "compare" ? "tabs" : "compare";
+      await window.electronAPI.setAppSettings({ layoutMode: nextMode });
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): compare mode toggle failed", err);
+    }
+  });
+}
+
+function buildCompareResultMessage(result) {
+  if (!result) return "Shared send failed.";
+  if (result.error === "empty-prompt") return "Enter a prompt first.";
+
+  const total = Number.isFinite(result.totalCount) ? result.totalCount : 0;
+  const success = Number.isFinite(result.successCount) ? result.successCount : 0;
+
+  if (result.ok) {
+    return total === 1 ? "Prompt sent." : `Prompt sent to ${success}/${total} models.`;
+  }
+
+  if (total > 0) {
+    return `Prompt sent to ${success}/${total} models. Check panes that were still loading or unsupported.`;
+  }
+
+  return "Shared send failed.";
+}
+
+function initCompareComposer() {
+  const input = document.getElementById("compare-prompt-input");
+  const sendButton = document.getElementById("compare-send-button");
+  const historyButton = document.getElementById("compare-history-button");
+  if (!input || !sendButton || !historyButton) return;
+
+  const focusCompareInput = () => {
+    try {
+      window.focus();
+    } catch (_) {}
+    input.focus();
+    const length = input.value.length;
+    input.setSelectionRange(length, length);
+  };
+
+  const toggleCompareHistoryFromUI = async () => {
+    try {
+      if (compareHistoryOpen) {
+        window.electronAPI.closeCompareHistory();
+        return;
+      }
+
+      const rect = historyButton.getBoundingClientRect();
+      await window.electronAPI.toggleCompareHistory({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      });
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): compare history toggle failed", err);
+    }
+  };
+
+  const placePromptInComposer = (promptText) => {
+    input.value = typeof promptText === "string" ? promptText : "";
+    focusCompareInput();
+  };
+
+  const sendPrompt = async () => {
+    const promptText = input.value || "";
+    if (!promptText.trim()) {
+      setCompareStatus("Enter a prompt first.");
+      input.focus();
+      return;
+    }
+
+    sendButton.disabled = true;
+    setCompareStatus("Sending...");
+
+    try {
+      const result = await window.electronAPI.sendComparePrompt(promptText);
+      setCompareStatus(buildCompareResultMessage(result));
+
+      if (result?.ok) {
+        input.value = "";
+      }
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): shared send failed", err);
+      setCompareStatus("Shared send failed.");
+    } finally {
+      sendButton.disabled = false;
+      focusCompareInput();
+      setTimeout(() => {
+        focusCompareInput();
+      }, 80);
+    }
+  };
+
+  sendButton.addEventListener("click", () => {
+    sendPrompt();
+  });
+
+  historyButton.addEventListener("click", async () => {
+    await toggleCompareHistoryFromUI();
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendPrompt();
+    }
+  });
+
+  window.electronAPI.onCompareHistorySelected((payload) => {
+    placePromptInComposer(payload?.promptText || "");
+    setCompareStatus("Prompt loaded from history.");
+  });
+
+  window.electronAPI.onCompareHistoryVisibilityChanged((payload) => {
+    applyCompareHistoryVisibility(!!payload?.open);
+  });
+
+  window.electronAPI.onShortcutCommand(async (payload) => {
+    const command = payload?.command;
+    if (command === "focus-compare-composer") {
+      focusCompareInput();
+      return;
+    }
+    if (command === "toggle-compare-history") {
+      await toggleCompareHistoryFromUI();
+    }
+  });
+}
+
 // -----------------------------
 // MODELS CATALOG
 // -----------------------------
@@ -114,6 +285,11 @@ function buildModelsById(payload) {
     map[m.id] = m;
   }
   return map;
+}
+
+function applyModelsPayload(payload) {
+  modelsById = buildModelsById(payload);
+  compareModelIds = Array.isArray(payload?.compareModelIds) ? payload.compareModelIds.slice() : [];
 }
 
 function computeVisibleOrderFromModelsPayload(payload) {
@@ -231,8 +407,79 @@ function renderTabs(order) {
     tabsEl.appendChild(btn);
   }
 
+  renderCompareHeaders(compareModelIds);
   updateActiveTabUI(activeModel);
   updateAllDots();
+}
+
+function renderCompareHeaders(order) {
+  const headersEl = document.getElementById("compare-pane-headers");
+  if (!headersEl) return;
+
+  const visibleOrder = Array.isArray(order) ? order.slice() : [];
+  headersEl.innerHTML = "";
+
+  if (!visibleOrder.length) {
+    headersEl.style.gridTemplateColumns = "";
+    return;
+  }
+
+  const headerWidth = headersEl.clientWidth;
+  if (headerWidth > 0) {
+    const widthPerPane = Math.floor(headerWidth / visibleOrder.length);
+    let usedWidth = 0;
+    const columnWidths = visibleOrder.map((_model, index) => {
+      const isLast = index === visibleOrder.length - 1;
+      const width = isLast ? Math.max(0, headerWidth - usedWidth) : widthPerPane;
+      usedWidth += widthPerPane;
+      return `${Math.max(0, width)}px`;
+    });
+    headersEl.style.gridTemplateColumns = columnWidths.join(" ");
+  } else {
+    headersEl.style.gridTemplateColumns = `repeat(${visibleOrder.length}, minmax(0, 1fr))`;
+  }
+
+  for (const model of visibleOrder) {
+    const header = document.createElement("div");
+    header.className = "compare-pane-header";
+    header.dataset.model = model;
+
+    const chip = document.createElement("div");
+    chip.className = "compare-pane-chip";
+    chip.dataset.model = model;
+
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    dot.dataset.model = model;
+
+    const label = document.createElement("span");
+    label.className = "compare-pane-label";
+    label.textContent = getModelLabel(model);
+
+    const actions = document.createElement("div");
+    actions.className = "compare-pane-actions";
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "compare-pane-action";
+    openButton.textContent = "↗";
+    openButton.title = `Open ${getModelLabel(model)} in single view`;
+    openButton.addEventListener("click", async () => {
+      try {
+        await window.electronAPI.setAppSettings({ layoutMode: "tabs" });
+        window.electronAPI.switchModel(model);
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(renderer): compare pane open failed", err);
+      }
+    });
+
+    actions.appendChild(openButton);
+    chip.appendChild(dot);
+    chip.appendChild(actions);
+    chip.appendChild(label);
+    header.appendChild(chip);
+    headersEl.appendChild(header);
+  }
 }
 
 function updateActiveTabUI(model) {
@@ -240,17 +487,21 @@ function updateActiveTabUI(model) {
   buttons.forEach((b) => {
     b.classList.toggle("active", b.dataset.model === model);
   });
+
+  const compareButtons = document.querySelectorAll(".compare-pane-chip");
+  compareButtons.forEach((b) => {
+    b.classList.toggle("active", b.dataset.model === model);
+  });
 }
 
 function updateDot(model) {
-  const dot = document.querySelector(`.status-dot[data-model="${model}"]`);
-  if (!dot) return;
-
   const state = ensureState(model);
-
-  dot.classList.remove("loading", "ready", "error");
   const cls = stateToDotClass(state);
-  if (cls) dot.classList.add(cls);
+
+  for (const dot of document.querySelectorAll(`.status-dot[data-model="${model}"]`)) {
+    dot.classList.remove("loading", "ready", "error");
+    if (cls) dot.classList.add(cls);
+  }
 }
 
 function updateAllDots() {
@@ -326,7 +577,7 @@ function wireIPC() {
 
   // Update labels when the catalog changes
   window.electronAPI.onAppModelsChanged((payload) => {
-    modelsById = buildModelsById(payload);
+    applyModelsPayload(payload);
 
     // If we already have a visible order from main, re-render tabs to update labels
     if (lastTabOrder.length) {
@@ -345,10 +596,12 @@ function wireIPC() {
 // -----------------------------
 
 document.addEventListener("DOMContentLoaded", async () => {
+  applyLayoutModeToDOM(layoutMode);
+
   // Load models first so labels are correct even before model-order-changed arrives.
   try {
     const payload = await window.electronAPI.getAppModels();
-    modelsById = buildModelsById(payload);
+    applyModelsPayload(payload);
 
     const visible = computeVisibleOrderFromModelsPayload(payload);
     if (visible.length) renderTabs(visible);
@@ -362,6 +615,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireIPC();
   wireDotClicks();
 
-  initThemeToggle();
+  initCompareModeButton();
+  initCompareComposer();
+  initThemeSync();
   initSettingsButton();
+
+  window.addEventListener("resize", () => {
+    if (layoutMode === "compare") {
+      renderCompareHeaders(compareModelIds);
+    }
+  });
 });

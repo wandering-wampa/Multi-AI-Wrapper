@@ -127,4 +127,18 @@ This is an early, experimental tool intended for personal use and tinkering. Exp
 ~~- Customizable themes – Dark/light modes~~
 ~~- Settings panel – Simple in-app settings for theme options, behavior, and quality-of-life settings~~
 ~~- User add or remove tabs/embedded URLs for more variety~~
+- Compare view presets – Save and restore named pane sets like `All`, `Research`, or `Coding`.
+- Compare view quick actions – Keep compare-view controls aligned with main-tab behavior, including reload, close/remove from compare view, and jump directly into that model's single-view tab.
+- Compare view persistence – Preserve compare pane membership and related compare-mode state predictably across relaunches.
+- Shared prompt history – Keep a lightweight history for the compare composer so repeated testing is faster.
+- Keyboard shortcuts – Add dedicated shortcuts for compare mode, compare composer focus, pane cycling, and opening the relevant settings page directly.
+- Settings cleanup – Split model catalog management from compare-view pane management more clearly inside Settings as the app grows.
+- Image/file attachments in compare mode – After the compare workflow is stable, add provider-specific attachment support alongside shared text send.
+- Visual polish pass – Normalize spacing, active states, and component styling across tabs, compare chips, toolbar buttons, and Settings after the workflow work is done.
+- Command palette (Ctrl+K / Cmd+K) – A searchable action launcher to switch tabs, toggle settings (theme/spellcheck), and run common commands without cluttering the UI.
+- Export options (notes/app-owned content) – Export your notes or saved content to Markdown, PDF, or plain text.
+
+### Future improvements
+
+- Response alignment tools – Add features that make side-by-side comparison more useful, such as collecting the latest responses into a shared summary panel or showing normalized snippets for easier review.
 

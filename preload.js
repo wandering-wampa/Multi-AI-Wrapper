@@ -12,6 +12,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("refresh-model", { modelName, hard: !!hard }),
 
   stopModel: (modelName) => ipcRenderer.send("stop-model", { modelName }),
+  sendComparePrompt: (promptText) => ipcRenderer.invoke("compare:send-prompt", { promptText }),
+  toggleCompareHistory: (anchorRect) => ipcRenderer.invoke("compareHistory:toggle", { anchorRect }),
+  closeCompareHistory: () => ipcRenderer.send("compareHistory:close"),
+  getComparePromptHistory: () => ipcRenderer.invoke("compareHistory:get"),
+  selectComparePromptHistory: (promptText) =>
+    ipcRenderer.invoke("compareHistory:select", { promptText }),
+  removeComparePromptHistory: (promptText) =>
+    ipcRenderer.invoke("compareHistory:remove", { promptText }),
+  clearComparePromptHistory: () => ipcRenderer.invoke("compareHistory:clear"),
 
   // theme
   getTheme: () => ipcRenderer.invoke("theme:get"),
@@ -29,6 +38,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // models catalog (used by Settings UI + main renderer tabs)
   getAppModels: () => ipcRenderer.invoke("appModels:get"),
+  setCompareModels: (modelIds) => ipcRenderer.invoke("compareModels:set", { modelIds }),
   addAppModel: (payload) => ipcRenderer.invoke("appModels:add", payload),
   deleteAppModel: (id) => ipcRenderer.invoke("appModels:delete", { id }),
   onAppModelsChanged: (callback) => {
@@ -37,6 +47,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // about/info
   getAppInfo: () => ipcRenderer.invoke("appInfo:get"),
+  openExternal: (url) => ipcRenderer.invoke("shell:openExternal", { url }),
 
   // settings window
   openSettings: () => ipcRenderer.invoke("settings:open"),
@@ -57,5 +68,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   onAllModelLoadStates: (callback) => {
     ipcRenderer.on("all-model-load-states", (_event, states) => callback(states));
+  },
+
+  onCompareHistorySelected: (callback) => {
+    ipcRenderer.on("compare-history-selected", (_event, payload) => callback(payload));
+  },
+
+  onCompareHistoryVisibilityChanged: (callback) => {
+    ipcRenderer.on("compare-history-visibility-changed", (_event, payload) => callback(payload));
+  },
+
+  onShortcutCommand: (callback) => {
+    ipcRenderer.on("shortcut-command", (_event, payload) => callback(payload));
   }
 });

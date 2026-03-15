@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self';">
-  <title>Multi-AI Cockpit</title>
+  <title>Multi-AI-Wrapper</title>
 
 
   <style>
     :root {
+      --toolbar-side-padding: 10px;
       --bg: #111;
       --fg: #eee;
       --bar-bg: #181818;
@@ -47,20 +48,36 @@
     }
 
     #top-bar {
+      position: relative;
       height: 48px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      background: var(--bar-bg);
-      border-bottom: 1px solid var(--bar-border);
+      justify-content: flex-start;
       -webkit-app-region: drag;
-      padding: 0 10px;
+      padding: 0;
       box-sizing: border-box;
+      border-bottom: 1px solid var(--bar-border);
+    }
+
+    #nav-strip {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
     }
 
     #tabs {
       display: flex;
+      align-items: center;
       gap: 6px;
+      height: 100%;
+      flex: 1 1 auto;
+      box-sizing: border-box;
+      overflow-x: auto;
+      padding: 0 var(--toolbar-side-padding);
       -webkit-app-region: no-drag;
     }
 
@@ -109,53 +126,17 @@
       -webkit-app-region: no-drag;
     }
 
-    .theme-toggle {
-      position: relative;
-      width: 54px;
-      height: 28px;
-      border-radius: 999px;
-      border: 1px solid var(--btn-border);
-      background: var(--btn-bg);
-      cursor: pointer;
-      outline: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 7px;
-      transition: background 0.15s ease, border-color 0.15s ease;
-      -webkit-app-region: no-drag;
-    }
-
-    .theme-toggle:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
-    }
-
-    .theme-icon {
-      font-size: 13px;
-      line-height: 1;
-      user-select: none;
-      opacity: 0.85;
-    }
-
-    .theme-knob {
+    #top-bar-actions {
       position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 22px;
-      height: 22px;
-      border-radius: 999px;
-      background: #fff;
-      transition: transform 0.18s ease;
-      pointer-events: none;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      -webkit-app-region: no-drag;
+      z-index: 4;
     }
-
-    html[data-theme="dark"] .theme-knob {
-      transform: translateX(26px);
-    }
-
-    html[data-theme="dark"] .theme-icon.sun { opacity: 0.35; }
-    html[data-theme="light"] .theme-icon.moon { opacity: 0.35; }
 
     .icon-button {
       width: 34px;
@@ -181,27 +162,340 @@
       transform: translateY(1px);
     }
 
+    .icon-button.active {
+      background: var(--active-bg);
+      border-color: var(--active-border);
+      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
+    }
+
     .icon {
       font-size: 16px;
       line-height: 1;
+    }
+
+    .toolbar-button {
+      height: 34px;
+      width: 112px;
+      padding: 0 12px;
+      border-radius: 10px;
+      border: 1px solid var(--btn-border);
+      background: var(--btn-bg);
+      color: var(--fg);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      -webkit-app-region: no-drag;
+      user-select: none;
+    }
+
+    .toolbar-button:hover {
+      background: var(--btn-hover-bg);
+      border-color: var(--btn-hover-border);
+    }
+
+    .toolbar-button:active {
+      transform: translateY(1px);
+    }
+
+    .toolbar-button.active {
+      background: var(--active-bg);
+      border-color: var(--active-border);
+      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
+    }
+
+    .toolbar-button-label {
+      white-space: nowrap;
+    }
+
+    #compare-pane-headers {
+      height: 100%;
+      flex: 1 1 auto;
+      width: 100%;
+      min-width: 0;
+      display: none;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      box-sizing: border-box;
+      -webkit-app-region: no-drag;
+    }
+
+    body[data-layout-mode="compare"] #tabs {
+      display: none;
+    }
+
+    body[data-layout-mode="tabs"] #tabs {
+      padding-right: 180px;
+    }
+
+    body[data-layout-mode="compare"] #compare-pane-headers {
+      display: grid;
+    }
+
+    .compare-pane-header {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      border-right: 1px solid var(--bar-border);
+      box-sizing: border-box;
+      min-height: 0;
+    }
+
+    .compare-pane-header:last-child {
+      border-right: none;
+    }
+
+    .compare-pane-chip {
+      width: 100%;
+      min-width: 0;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--fg);
+      cursor: default;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      box-sizing: border-box;
+    }
+
+    .compare-pane-chip:hover {
+      background: transparent;
+      border-color: transparent;
+    }
+
+    .compare-pane-chip.active {
+      background: var(--active-bg);
+      border-color: var(--active-border);
+      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+    }
+
+    .compare-pane-label {
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .compare-pane-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .compare-pane-action {
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--hint);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .compare-pane-action:hover {
+      background: rgba(96, 165, 250, 0.18);
+      color: #bfdbfe;
+    }
+
+    .compare-pane-action:focus-visible {
+      outline: 2px solid rgba(96, 165, 250, 0.55);
+      outline-offset: 1px;
+    }
+
+    #compare-composer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: none;
+      padding: 10px 12px 12px;
+      background: linear-gradient(180deg, rgba(17, 17, 17, 0.92), rgba(17, 17, 17, 0.98));
+      border-top: 1px solid var(--bar-border);
+      box-sizing: border-box;
+      z-index: 20;
+    }
+
+    body[data-layout-mode="compare"] #compare-composer {
+      display: block;
+    }
+
+    .compare-composer-inner {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 180px;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    #compare-prompt-input {
+      width: 100%;
+      min-height: 108px;
+      resize: none;
+      border-radius: 10px;
+      border: 1px solid rgba(245, 158, 11, 0.75);
+      background: rgba(255, 255, 255, 0.98);
+      color: #111827;
+      padding: 12px 14px;
+      box-sizing: border-box;
+      font: inherit;
+      line-height: 1.45;
+      outline: none;
+    }
+
+    #compare-prompt-input:focus {
+      border-color: rgba(245, 158, 11, 0.95);
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+    }
+
+    .compare-composer-side {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: stretch;
+      justify-content: flex-start;
+    }
+
+    .compare-composer-actions {
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+    }
+
+    .compare-history-button {
+      width: 42px;
+      min-width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--fg);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .compare-history-button:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(245, 158, 11, 0.65);
+    }
+
+    .compare-history-button.active {
+      background: rgba(245, 158, 11, 0.18);
+      border-color: rgba(245, 158, 11, 0.82);
+      box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18);
+    }
+
+    .compare-history-button svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+    }
+
+    .composer-send-button {
+      height: 42px;
+      flex: 1 1 auto;
+      border-radius: 10px;
+      border: 1px solid rgba(245, 158, 11, 0.7);
+      background: rgba(245, 158, 11, 0.18);
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+    }
+
+    .composer-send-button:hover {
+      background: rgba(245, 158, 11, 0.26);
+      border-color: rgba(245, 158, 11, 0.9);
+    }
+
+    .composer-send-button:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
+    .compare-status {
+      min-height: 18px;
+      font-size: 12px;
+      color: var(--fg);
+      opacity: 0.78;
+    }
+
+    .compare-hint {
+      font-size: 11px;
+      color: var(--hint);
+    }
+
+    @media (max-width: 840px) {
+      .compare-composer-inner {
+        grid-template-columns: 1fr;
+      }
+
+      #compare-prompt-input {
+        min-height: 92px;
+      }
     }
   </style>
 </head>
 
 <body>
-  <div id="top-bar">
-    <div id="tabs"></div>
+  <div id="header-shell">
+    <div id="top-bar">
+      <div id="nav-strip">
+        <div id="tabs"></div>
+        <div id="compare-pane-headers" aria-hidden="true"></div>
+      </div>
+      <div id="top-bar-actions">
+        <button id="compare-mode-button" class="toolbar-button" title="Compare view" aria-pressed="false" aria-label="Compare view">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="1.5" y="2" width="4" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+            <rect x="10.5" y="2" width="4" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+            <path d="M7.9 4.5h.2M7.9 8h.2M7.9 11.5h.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+          </svg>
+          <span class="toolbar-button-label" id="compare-mode-button-label">Compare</span>
+        </button>
+        <button id="settings-button" class="icon-button" title="Settings">
+          <span class="icon">⚙</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
-    <div id="actions">
-      <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark">
-        <span class="theme-icon sun">☀</span>
-        <span class="theme-icon moon">🌙</span>
-        <span class="theme-knob"></span>
-      </button>
+  <div id="compare-composer" aria-hidden="true">
+    <div class="compare-composer-inner">
+      <textarea id="compare-prompt-input" placeholder="Send a prompt to all visible models" spellcheck="true"></textarea>
 
-      <button id="settings-button" class="icon-button" title="Settings">
-        <span class="icon">⚙</span>
-      </button>
+      <div class="compare-composer-side">
+        <div class="compare-composer-actions">
+          <button id="compare-history-button" class="compare-history-button" type="button" title="Prompt history" aria-label="Prompt history" aria-expanded="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 1.5a6.5 6.5 0 1 0 6.2 8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+              <path d="M8 4.2v4l2.6 1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+              <path d="M11.8 1.9h2.7v2.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
+          <button id="compare-send-button" class="composer-send-button" type="button">Send</button>
+        </div>
+        <div id="compare-status" class="compare-status"></div>
+        <div class="compare-hint">Enter to send, Shift+Enter for a new line</div>
+      </div>
     </div>
   </div>
 
