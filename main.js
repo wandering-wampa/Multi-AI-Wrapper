@@ -940,17 +940,8 @@ function runSoftReflowOnWebContents(wc) {
 
 function hideView(view) {
   try {
-    // Prefer removing the view from the window so it cannot intercept clicks.
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try {
-        mainWindow.removeBrowserView(view);
-        addedViews.delete(view);
-        return;
-      } catch (err) {
-        // Fall through to bounds zeroing if removal fails
-      }
-    }
-
+    // Keep model views attached after first add. Re-adding BrowserViews can
+    // accumulate Electron-internal BrowserWindow "closed" listeners.
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
   } catch (err) {
     console.warn("Multi-AI-Wrapper: hideView failed", err);
