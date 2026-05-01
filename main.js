@@ -15,6 +15,17 @@ const {
 
 const path = require("path");
 const fs = require("fs");
+const {
+  buildCatalogMap,
+  deriveModelCatalogState,
+  getCompareVisibleModelOrder: deriveCompareVisibleModelOrder,
+  getSettingsModelOrder,
+  getVisibleModelOrder: deriveVisibleModelOrder,
+  isHttpsUrl,
+  normalizeCompareSelectionIds,
+  normalizeEnabledModels,
+  normalizeModelOrder
+} = require("./lib/model-catalog.cjs");
 const APP_DISPLAY_NAME = "Multi-AI-Wrapper";
 const APP_ICON_PATH = path.join(__dirname, "assets", "Multi-Ai-logo.ico");
 const GITHUB_REPO_URL = "https://github.com/wandering-wampa/Multi-AI-Wrapper";
@@ -41,19 +52,6 @@ if (PROFILE_OVERRIDE_DIR) {
   }
 }
 
-// -----------------------------
-// Models catalog seed (used only when no persisted catalog exists)
-// -----------------------------
-
-const BUILTIN_MODELS = [
-  { id: "chatgpt", name: "ChatGPT", url: "https://chatgpt.com/", builtIn: true },
-  { id: "claude", name: "Claude", url: "https://claude.ai/", builtIn: true },
-  { id: "copilot", name: "Copilot", url: "https://copilot.microsoft.com/", builtIn: true },
-  { id: "gemini", name: "Gemini", url: "https://gemini.google.com/app", builtIn: true },
-  { id: "perplexity", name: "Perplexity", url: "https://www.perplexity.ai/", builtIn: true }
-];
-
-const DEFAULT_MODEL_ORDER = BUILTIN_MODELS.map((m) => m.id);
 const STORAGE_PATH = path.join(app.getPath("userData"), "settings.json");
 const COMPARE_PROMPT_HISTORY_LIMIT = 30;
 const COMPARE_HISTORY_WINDOW_WIDTH = 396;
@@ -91,114 +89,6 @@ function savePersisted(obj) {
   } catch (err) {
     console.warn("Multi-AI-Wrapper: failed to save persisted settings", err);
   }
-}
-
-function isHttpsUrl(url) {
-  return typeof url === "string" && /^https:\/\//i.test(url.trim());
-}
-
-function normalizeModelsCatalog(rawModels) {
-  // IMPORTANT:
-  // - If persisted.models does NOT exist yet, we seed with BUILTIN_MODELS.
-  // - Once persisted.models exists, it becomes the source of truth (so deletions stick).
-  if (rawModels === undefined || rawModels === null) {
-    return BUILTIN_MODELS.map((m) => ({ ...m }));
-  }
-
-  const rawList = Array.isArray(rawModels)
-    ? rawModels
-    : rawModels && typeof rawModels === "object"
-      ? Object.values(rawModels)
-      : [];
-
-  const out = [];
-  const seen = new Set();
-
-  for (const item of rawList) {
-    if (!item || typeof item !== "object") continue;
-
-    const id = typeof item.id === "string" ? item.id.trim() : "";
-    if (!id) continue;
-    if (seen.has(id)) continue;
-
-    const name = typeof item.name === "string" ? item.name.trim() : "";
-    const url = typeof item.url === "string" ? item.url.trim() : "";
-    if (!name || !isHttpsUrl(url)) continue;
-
-    const builtIn = !!item.builtIn;
-    seen.add(id);
-    out.push({ id, name, url, builtIn });
-  }
-
-  // Ensure at least 1 model exists
-  if (!out.length) {
-    return BUILTIN_MODELS.map((m) => ({ ...m }));
-  }
-
-  return out;
-}
-
-function buildCatalogMap(models) {
-  const map = Object.create(null);
-  for (const m of Array.isArray(models) ? models : []) {
-    if (!m || typeof m !== "object") continue;
-    if (typeof m.id !== "string" || !m.id) continue;
-    map[m.id] = m;
-  }
-  return map;
-}
-
-function normalizeModelOrder(rawOrder, models) {
-  const catalog = buildCatalogMap(models);
-  const input = Array.isArray(rawOrder) ? rawOrder : [];
-  const seen = new Set();
-  const out = [];
-
-  for (const id of input) {
-    if (typeof id !== "string") continue;
-    if (!catalog[id]) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-
-  // Append any missing catalog entries
-  for (const m of models) {
-    if (!seen.has(m.id)) {
-      seen.add(m.id);
-      out.push(m.id);
-    }
-  }
-
-  // If still empty, fall back to whatever exists
-  if (!out.length) {
-    const first = models[0]?.id;
-    return first ? [first] : DEFAULT_MODEL_ORDER.slice();
-  }
-
-  return out;
-}
-
-function normalizeEnabledModels(rawEnabled, models, modelOrder) {
-  const catalog = buildCatalogMap(models);
-  const order = Array.isArray(modelOrder) ? modelOrder : [];
-  const input = Array.isArray(rawEnabled) ? rawEnabled : [];
-  const seen = new Set();
-  const out = [];
-
-  for (const id of input) {
-    if (typeof id !== "string") continue;
-    if (!catalog[id]) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-
-  if (out.length) return out;
-
-  // Fallback: enable the first model in order (ensures at least one enabled)
-  const first = order.find((id) => !!catalog[id]) || models[0]?.id;
-  return first ? [first] : DEFAULT_MODEL_ORDER.slice();
 }
 
 function normalizeComparePromptHistory(rawHistory) {
@@ -291,26 +181,18 @@ function restoreClipboardSnapshot(snapshot) {
 // Existing keys we continue honoring: enabledModels, restoreLastActive, defaultModel, confirmBeforeStop, hardReloadOnRefresh
 // New key added: models (catalog)
 const persisted = loadPersisted();
+const initialModelCatalog = deriveModelCatalogState({ persisted });
 
 // Models catalog (array of { id, name, url, builtIn? })
-let MODELS = normalizeModelsCatalog(persisted.models);
+let MODELS = initialModelCatalog.models;
 let MODELS_BY_ID = buildCatalogMap(MODELS);
-
-// Order + enabled should be normalized against the catalog.
-let MODEL_ORDER = normalizeModelOrder(
-  Array.isArray(persisted.modelOrder) && persisted.modelOrder.length ? persisted.modelOrder : DEFAULT_MODEL_ORDER,
-  MODELS
-);
-
-let ENABLED_MODELS = normalizeEnabledModels(persisted.enabledModels, MODELS, MODEL_ORDER);
+let MODEL_ORDER = initialModelCatalog.modelOrder;
+let ENABLED_MODELS = initialModelCatalog.enabledModels;
 
 let RESTORE_LAST_ACTIVE_ON_LAUNCH =
   typeof persisted.restoreLastActive === "boolean" ? persisted.restoreLastActive : true;
 
-let DEFAULT_MODEL =
-  typeof persisted.defaultModel === "string" && MODELS_BY_ID[persisted.defaultModel]
-    ? persisted.defaultModel
-    : MODEL_ORDER[0] || MODELS[0]?.id || DEFAULT_MODEL_ORDER[0];
+let DEFAULT_MODEL = initialModelCatalog.defaultModel;
 
 let CONFIRM_BEFORE_STOP =
   typeof persisted.confirmBeforeStop === "boolean" ? persisted.confirmBeforeStop : false;
@@ -331,39 +213,22 @@ function getEnabledSet() {
 }
 
 function getVisibleModelOrder() {
-  const enabled = getEnabledSet();
-  return MODEL_ORDER.filter((id) => enabled.has(id) && !!MODELS_BY_ID[id]);
+  return deriveVisibleModelOrder({
+    models: MODELS,
+    modelOrder: MODEL_ORDER,
+    enabledModels: ENABLED_MODELS
+  });
 }
 
-function normalizeCompareSelectionIds(rawCompareIds, models, modelOrder) {
-  const normalizedOrder = normalizeModelOrder(modelOrder, models);
-  const requested = Array.isArray(rawCompareIds)
-    ? new Set(rawCompareIds.filter((id) => typeof id === "string"))
-    : null;
-
-  if (!requested) return normalizedOrder.slice();
-
-  const out = normalizedOrder.filter((id) => requested.has(id));
-  if (out.length) return out;
-
-  return normalizedOrder.length ? [normalizedOrder[0]] : [];
-}
-
-let COMPARE_MODEL_IDS = Array.isArray(persisted.compareModelIds)
-  ? normalizeCompareSelectionIds(persisted.compareModelIds, MODELS, MODEL_ORDER)
-  : getVisibleModelOrder();
-
-COMPARE_MODEL_IDS = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
+let COMPARE_MODEL_IDS = initialModelCatalog.compareSelectedModelIds;
 
 function getCompareVisibleModelOrder() {
-  const selected = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
-  const enabled = new Set(normalizeEnabledModels(ENABLED_MODELS, MODELS, MODEL_ORDER));
-  const visible = selected.filter((id) => enabled.has(id));
-
-  if (visible.length) return visible;
-
-  const enabledVisible = getVisibleModelOrder();
-  return enabledVisible.length ? [enabledVisible[0]] : [];
+  return deriveCompareVisibleModelOrder({
+    models: MODELS,
+    modelOrder: MODEL_ORDER,
+    enabledModels: ENABLED_MODELS,
+    compareModelIds: COMPARE_MODEL_IDS
+  });
 }
 
 function ensureCompareModelsAreValid() {
@@ -377,13 +242,21 @@ function ensureCompareModelsAreValid() {
 function getModelsPayload() {
   const compareVisibleModelOrder = getCompareVisibleModelOrder();
   const compareSelectedModelOrder = normalizeCompareSelectionIds(COMPARE_MODEL_IDS, MODELS, MODEL_ORDER);
+  const visibleModelOrder = getVisibleModelOrder();
+  const settingsModelOrder = getSettingsModelOrder({
+    models: MODELS,
+    modelOrder: MODEL_ORDER,
+    enabledModels: ENABLED_MODELS
+  });
   return {
     models: MODELS.map((m) => ({ ...m })),
     modelOrder: MODEL_ORDER.slice(),
     enabledModels: ENABLED_MODELS.slice(),
     compareModelIds: compareVisibleModelOrder,
     compareSelectedModelIds: compareSelectedModelOrder,
-    compareEligibleModelIds: getVisibleModelOrder(),
+    compareEligibleModelIds: visibleModelOrder,
+    visibleModelIds: visibleModelOrder,
+    settingsModelIds: settingsModelOrder,
     activeModel
   };
 }
@@ -481,24 +354,7 @@ function ensureActiveModelIsValid() {
   ensureCompareModelsAreValid();
 }
 
-function computeInitialActiveModel() {
-  const enabled = getEnabledSet();
-
-  const candidate = RESTORE_LAST_ACTIVE_ON_LAUNCH ? persisted.activeModel : DEFAULT_MODEL;
-  if (
-    typeof candidate === "string" &&
-    MODELS_BY_ID[candidate] &&
-    enabled.has(candidate) &&
-    MODEL_ORDER.includes(candidate)
-  ) {
-    return candidate;
-  }
-
-  const visible = getVisibleModelOrder();
-  return visible[0] || MODEL_ORDER[0] || MODELS[0]?.id || null;
-}
-
-let activeModel = computeInitialActiveModel();
+let activeModel = initialModelCatalog.activeModel;
 
 // -----------------------------
 // App settings helpers (IPC)

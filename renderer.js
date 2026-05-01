@@ -410,6 +410,10 @@ function applyModelsPayload(payload) {
 }
 
 function computeVisibleOrderFromModelsPayload(payload) {
+  if (Array.isArray(payload?.visibleModelIds)) {
+    return payload.visibleModelIds.filter((id) => typeof id === "string");
+  }
+
   const order = Array.isArray(payload?.modelOrder) ? payload.modelOrder : [];
   const enabled = new Set(Array.isArray(payload?.enabledModels) ? payload.enabledModels : []);
   const byId = buildModelsById(payload);

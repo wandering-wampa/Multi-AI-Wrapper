@@ -801,6 +801,10 @@
     }
 
     function computeOrderedIds(payload) {
+      if (Array.isArray(payload?.settingsModelIds)) {
+        return payload.settingsModelIds.filter(id => typeof id === "string");
+      }
+
       const order = Array.isArray(payload?.modelOrder) ? payload.modelOrder : [];
       const enabled = new Set(Array.isArray(payload?.enabledModels) ? payload.enabledModels : []);
       const byId = modelsById(payload);
@@ -850,7 +854,9 @@
       const enabled = new Set(Array.isArray(lastModelsPayload.enabledModels) ? lastModelsPayload.enabledModels : []);
 
       // only enabled models as options, in order
-      const ordered = computeOrderedIds(lastModelsPayload).filter(id => enabled.has(id) && !!byId[id]);
+      const ordered = Array.isArray(lastModelsPayload.visibleModelIds)
+        ? lastModelsPayload.visibleModelIds.filter(id => enabled.has(id) && !!byId[id])
+        : computeOrderedIds(lastModelsPayload).filter(id => enabled.has(id) && !!byId[id]);
 
       defaultModelSelect.innerHTML = "";
 
@@ -1055,7 +1061,9 @@
         modelsListEl.appendChild(row);
       }
 
-      const compareOrdered = ordered.filter(id => enabled.has(id) && !!byId[id]);
+      const compareOrdered = Array.isArray(payload?.compareEligibleModelIds)
+        ? payload.compareEligibleModelIds.filter(id => enabled.has(id) && !!byId[id])
+        : ordered.filter(id => enabled.has(id) && !!byId[id]);
 
       for (const id of compareOrdered) {
         const m = byId[id];

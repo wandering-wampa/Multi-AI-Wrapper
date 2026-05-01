@@ -5,6 +5,7 @@
   "description": "Local Electron wrapper for ChatGPT, Claude, Copilot, Gemini, and Perplexity in one UI",
   "main": "main.js",
   "scripts": {
+    "test": "node --test test/*.test.cjs",
     "start": "node scripts/start-electron.js",
     "package-win": "node scripts/package-win.js",
     "package-mac": "node scripts/package-mac.js",
