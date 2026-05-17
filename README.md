@@ -101,14 +101,12 @@ Usable. Still being cleaned up.
 - ~~Dark/light theme setting~~
 - ~~Settings panel for appearance, behavior, models, compare view, and About links~~
 - ~~User add/remove tabs and custom embedded URLs~~
-- Compare view presets for named pane sets such as `All`, `Research`, or `Coding`
-- Compare header actions for hiding panes without opening Settings
+- ~~Compare header actions for hiding panes without opening Settings~~
 - ~~Compare view persistence across relaunches and model changes~~
 - ~~Shared prompt history for the compare composer~~
 - ~~Settings split between model management and compare view~~
 - Image and file handling beyond the current staged image workflow
 - Visual cleanup across the header, tabs, compare controls, and Settings
-- Command palette (`Ctrl+K` / `Cmd+K`)
 - Export options for notes or app-owned content
 
 ## Future improvements

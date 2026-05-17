@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
         : { promptText: typeof payload === "string" ? payload : "" }
     ),
   pickCompareImages: () => ipcRenderer.invoke("compare:pick-images"),
+  pickCompareFiles: () => ipcRenderer.invoke("compare:pick-files"),
+  startNewChatInCompare: () => ipcRenderer.invoke("compare:new-chat-visible"),
+  setCompareComposerHeight: (height) =>
+    ipcRenderer.send("compare:composer-height", { height: Number(height) || 0 }),
   toggleCompareHistory: (anchorRect) => ipcRenderer.invoke("compareHistory:toggle", { anchorRect }),
   closeCompareHistory: () => ipcRenderer.send("compareHistory:close"),
   getComparePromptHistory: () => ipcRenderer.invoke("compareHistory:get"),

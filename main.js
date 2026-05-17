@@ -144,6 +144,39 @@ function normalizeCompareImagePaths(rawPaths) {
   return out;
 }
 
+function normalizeCompareFilePaths(rawPaths) {
+  const input = Array.isArray(rawPaths) ? rawPaths : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const item of input) {
+    const rawPath = typeof item === "string" ? item.trim() : "";
+    if (!rawPath) continue;
+
+    let resolvedPath;
+    try {
+      resolvedPath = path.resolve(rawPath);
+    } catch (_) {
+      continue;
+    }
+
+    if (seen.has(resolvedPath)) continue;
+
+    let stats;
+    try {
+      stats = fs.statSync(resolvedPath);
+    } catch (_) {
+      continue;
+    }
+    if (!stats?.isFile?.()) continue;
+
+    seen.add(resolvedPath);
+    out.push(resolvedPath);
+  }
+
+  return out;
+}
+
 function captureClipboardSnapshot() {
   try {
     return {
@@ -201,6 +234,8 @@ let HARD_RELOAD_ON_REFRESH =
   typeof persisted.hardReloadOnRefresh === "boolean" ? persisted.hardReloadOnRefresh : false;
 let ENABLE_KEYBOARD_SHORTCUTS =
   typeof persisted.enableKeyboardShortcuts === "boolean" ? persisted.enableKeyboardShortcuts : true;
+let SETUP_COMPLETE =
+  typeof persisted.setupComplete === "boolean" ? persisted.setupComplete : false;
 
 let LAYOUT_MODE = "tabs";
 let COMPARE_PROMPT_HISTORY = normalizeComparePromptHistory(persisted.comparePromptHistory);
@@ -369,7 +404,9 @@ function getAppSettingsPayload() {
     defaultModel: DEFAULT_MODEL,
     confirmBeforeStop: !!CONFIRM_BEFORE_STOP,
     hardReloadOnRefresh: !!HARD_RELOAD_ON_REFRESH,
-    enableKeyboardShortcuts: !!ENABLE_KEYBOARD_SHORTCUTS
+    enableKeyboardShortcuts: !!ENABLE_KEYBOARD_SHORTCUTS,
+    setupComplete: !!SETUP_COMPLETE,
+    needsFirstRunSetup: false
   };
 }
 
@@ -454,6 +491,11 @@ function applySettingsPatch(patch) {
     toPersist.enableKeyboardShortcuts = ENABLE_KEYBOARD_SHORTCUTS;
   }
 
+  if (typeof patch.setupComplete === "boolean") {
+    SETUP_COMPLETE = !!patch.setupComplete;
+    toPersist.setupComplete = SETUP_COMPLETE;
+  }
+
   if (Object.keys(toPersist).length) {
     persistAppSettings(toPersist);
   }
@@ -476,10 +518,22 @@ const addedViews = new Set();
 
 const modelLoadState = Object.create(null);
 
+function isManualOnlyModel(modelName) {
+  const model = MODELS_BY_ID[modelName];
+  return !model?.builtIn || !BROADCAST_SUPPORTED_MODEL_IDS.has(modelName);
+}
+
 function ensureLoadState(modelName) {
   if (!modelLoadState[modelName]) {
-    modelLoadState[modelName] = { initialized: false, loading: false, error: false };
+    modelLoadState[modelName] = {
+      initialized: false,
+      loading: false,
+      error: false,
+      composerReady: false,
+      manualOnly: isManualOnlyModel(modelName)
+    };
   }
+  modelLoadState[modelName].manualOnly = isManualOnlyModel(modelName);
   return modelLoadState[modelName];
 }
 
@@ -558,6 +612,12 @@ function markLoading(modelName, loading) {
 function markInitialized(modelName, initialized) {
   const state = ensureLoadState(modelName);
   state.initialized = !!initialized;
+  notifyModelLoadState(modelName);
+}
+
+function markComposerReady(modelName, ready) {
+  const state = ensureLoadState(modelName);
+  state.composerReady = !!ready;
   notifyModelLoadState(modelName);
 }
 
@@ -720,12 +780,14 @@ function createModelView(modelName) {
   wc.on("did-start-loading", () => {
     markLoading(modelName, true);
     markError(modelName, false);
+    markComposerReady(modelName, false);
   });
 
   wc.on("did-stop-loading", () => {
     markLoading(modelName, false);
     markInitialized(modelName, true);
     markError(modelName, false);
+    probeModelReadiness(modelName);
     // Soft reflow on load: dispatch a resize to fix layout issues (preserve scroll)
     try {
       // More robust soft reflow: preserve scroll position and try to refocus the input
@@ -763,6 +825,7 @@ function createModelView(modelName) {
   wc.on("did-fail-load", () => {
     markLoading(modelName, false);
     markError(modelName, true);
+    markComposerReady(modelName, false);
   });
 
   wc.setWindowOpenHandler(({ url: target }) => {
@@ -779,8 +842,8 @@ function createModelView(modelName) {
   return view;
 }
 
-const TOP_BAR_HEIGHT = 48;
-const COMPARE_COMPOSER_HEIGHT = 210;
+const TOP_BAR_HEIGHT = 64;
+let COMPARE_COMPOSER_HEIGHT = 190;
 
 function getContentBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
@@ -1435,6 +1498,53 @@ function buildFocusPromptTargetScript(modelId) {
   })();`;
 }
 
+function buildProbePromptTargetScript(modelId) {
+  return `(function () {
+    ${buildProviderDomHelperPreamble(modelId)}
+
+    const inputEl = findInputElement();
+    if (!inputEl) {
+      return { ok: false, error: "composer-not-found" };
+    }
+
+    return {
+      ok: true,
+      inputTag: inputEl.tagName,
+      isContentEditable: !!inputEl.isContentEditable
+    };
+  })();`;
+}
+
+function probeModelReadiness(modelId) {
+  const view = views[modelId];
+  const wc = view?.webContents;
+  if (!wc || wc.isDestroyed()) return;
+
+  const state = ensureLoadState(modelId);
+  if (state.manualOnly) {
+    markComposerReady(modelId, true);
+    return;
+  }
+
+  const delays = [250, 1100, 2400];
+  for (const delay of delays) {
+    setTimeout(async () => {
+      const currentView = views[modelId];
+      const currentWc = currentView?.webContents;
+      if (!currentWc || currentWc.isDestroyed()) return;
+      const currentState = ensureLoadState(modelId);
+      if (currentState.loading || currentState.error || currentState.composerReady) return;
+
+      try {
+        const result = await currentWc.executeJavaScript(buildProbePromptTargetScript(modelId), true);
+        markComposerReady(modelId, !!result?.ok);
+      } catch (err) {
+        safeWarn(`Multi-AI-Wrapper: readiness probe failed for ${modelId}`, err);
+      }
+    }, delay);
+  }
+}
+
 function safeWarn(...args) {
   try {
     const line = args
@@ -1504,17 +1614,108 @@ async function attachImagesToModel(modelId, imagePaths, view) {
   }
 }
 
-async function sendPromptToModel(modelId, promptText, imagePaths = []) {
+async function attachFilesToModel(modelId, filePaths, view) {
+  const normalizedPaths = normalizeCompareFilePaths(filePaths);
+  if (!normalizedPaths.length) {
+    return { modelId, ok: true };
+  }
+
+  const targetView = view || views[modelId];
+  const wc = targetView?.webContents;
+  if (!wc || wc.isDestroyed()) {
+    return { modelId, ok: false, error: "view-unavailable" };
+  }
+
+  const debuggerWasAttached = wc.debugger.isAttached();
+
+  try {
+    if (!debuggerWasAttached) {
+      wc.debugger.attach("1.3");
+    }
+
+    const documentResult = await wc.debugger.sendCommand("DOM.getDocument", {
+      depth: -1,
+      pierce: true
+    });
+    const rootNodeId = documentResult?.root?.nodeId;
+    if (!rootNodeId) {
+      return { modelId, ok: false, error: "file-input-not-found" };
+    }
+
+    const queryResult = await wc.debugger.sendCommand("DOM.querySelectorAll", {
+      nodeId: rootNodeId,
+      selector: "input[type='file']"
+    });
+    const nodeIds = Array.isArray(queryResult?.nodeIds) ? queryResult.nodeIds : [];
+    if (!nodeIds.length) {
+      return { modelId, ok: false, error: "file-input-not-found" };
+    }
+
+    let lastError = null;
+    for (const nodeId of nodeIds) {
+      try {
+        await wc.debugger.sendCommand("DOM.setFileInputFiles", {
+          nodeId,
+          files: normalizedPaths
+        });
+        await wc.executeJavaScript(`(function(){
+          const inputs = Array.from(document.querySelectorAll("input[type='file']"));
+          for (const input of inputs) {
+            if (input.files && input.files.length) {
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              return true;
+            }
+          }
+          return false;
+        })();`, true);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return {
+          modelId,
+          ok: true,
+          attachedCount: normalizedPaths.length,
+          method: "file-input"
+        };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (lastError) {
+      safeWarn(`Multi-AI-Wrapper: attachFilesToModel failed for ${modelId}`, lastError);
+    }
+    return { modelId, ok: false, error: "file-stage-failed" };
+  } catch (err) {
+    safeWarn(`Multi-AI-Wrapper: attachFilesToModel failed for ${modelId}`, err);
+    return { modelId, ok: false, error: "file-stage-failed" };
+  } finally {
+    if (!debuggerWasAttached && wc.debugger.isAttached()) {
+      try {
+        wc.debugger.detach();
+      } catch (err) {
+        safeWarn(`Multi-AI-Wrapper: debugger detach failed for ${modelId}`, err);
+      }
+    }
+  }
+}
+
+async function sendPromptToModel(modelId, promptText, imagePaths = [], filePaths = []) {
   const trimmedPrompt = typeof promptText === "string" ? promptText.trim() : "";
   const normalizedImagePaths = normalizeCompareImagePaths(imagePaths);
-  const shouldStageOnly = normalizedImagePaths.length > 0;
+  const normalizedFilePaths = normalizeCompareFilePaths(filePaths);
+  const shouldStageOnly = normalizedImagePaths.length > 0 || normalizedFilePaths.length > 0;
 
   if (!MODELS_BY_ID[modelId]) {
     return { modelId, ok: false, error: "unknown-model" };
   }
 
-  if (!BROADCAST_SUPPORTED_MODEL_IDS.has(modelId) || !MODELS_BY_ID[modelId].builtIn) {
-    return { modelId, ok: false, error: "unsupported-model" };
+  if (isManualOnlyModel(modelId)) {
+    return {
+      modelId,
+      ok: true,
+      manualOnly: true,
+      method: "manual-only"
+    };
   }
 
   let view = views[modelId];
@@ -1539,6 +1740,7 @@ async function sendPromptToModel(modelId, promptText, imagePaths = []) {
     );
 
     if (!prepared || prepared.ok !== true) {
+      markComposerReady(modelId, false);
       return {
         modelId,
         ok: false,
@@ -1546,8 +1748,19 @@ async function sendPromptToModel(modelId, promptText, imagePaths = []) {
       };
     }
 
+    markComposerReady(modelId, true);
+
     if (normalizedImagePaths.length) {
       const attached = await attachImagesToModel(modelId, normalizedImagePaths, view);
+      if (!attached?.ok) {
+        return attached;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    }
+
+    if (normalizedFilePaths.length) {
+      const attached = await attachFilesToModel(modelId, normalizedFilePaths, view);
       if (!attached?.ok) {
         return attached;
       }
@@ -1574,14 +1787,14 @@ async function sendPromptToModel(modelId, promptText, imagePaths = []) {
           modelId,
           ok: staged,
           error: staged ? null : "staging-not-confirmed",
-          method: "staged-with-images"
+          method: normalizedFilePaths.length ? "staged-with-files" : "staged-with-images"
         };
       }
 
       return {
         modelId,
         ok: true,
-        method: "staged-images-only"
+        method: normalizedFilePaths.length ? "staged-files-only" : "staged-images-only"
       };
     }
 
@@ -1675,8 +1888,9 @@ async function sendPromptToVisibleModels(payload) {
   const promptText = typeof payload?.promptText === "string" ? payload.promptText : "";
   const trimmedPrompt = promptText.trim();
   const imagePaths = normalizeCompareImagePaths(payload?.imagePaths);
+  const filePaths = normalizeCompareFilePaths(payload?.filePaths);
 
-  if (!trimmedPrompt && !imagePaths.length) {
+  if (!trimmedPrompt && !imagePaths.length && !filePaths.length) {
     return { ok: false, error: "empty-prompt", results: [] };
   }
 
@@ -1690,7 +1904,7 @@ async function sendPromptToVisibleModels(payload) {
 
   try {
     for (const modelId of visibleModelIds) {
-      results.push(await sendPromptToModel(modelId, trimmedPrompt, imagePaths));
+      results.push(await sendPromptToModel(modelId, trimmedPrompt, imagePaths, filePaths));
     }
   } finally {
     if (clipboardSnapshot) {
@@ -1698,13 +1912,120 @@ async function sendPromptToVisibleModels(payload) {
     }
   }
 
-  const successCount = results.filter((item) => item.ok).length;
+  const successCount = results.filter((item) => item.ok && !item.manualOnly).length;
+  const manualCount = results.filter((item) => item.manualOnly).length;
+  const failureCount = results.filter((item) => !item.ok).length;
   return {
-    ok: successCount === results.length && results.length > 0,
+    ok: failureCount === 0 && results.length > 0,
     successCount,
+    manualCount,
+    failureCount,
     totalCount: results.length,
-    attachmentCount: imagePaths.length,
+    attachmentCount: imagePaths.length + filePaths.length,
+    imageAttachmentCount: imagePaths.length,
+    fileAttachmentCount: filePaths.length,
     hasPrompt: !!trimmedPrompt,
+    results
+  };
+}
+
+function buildClickNewChatScript(modelId) {
+  const encodedModelId = JSON.stringify(modelId);
+  return `(function () {
+    const modelId = ${encodedModelId};
+    const selectors = {
+      chatgpt: ["a[href='/']", "button[aria-label*='New chat']", "button[title*='New chat']"],
+      claude: ["a[href='/new']", "button[aria-label*='New chat']", "button[title*='New chat']"],
+      copilot: ["button[aria-label*='New chat']", "button[title*='New chat']", "a[href*='conversationstyle']"],
+      gemini: ["button[aria-label*='New chat']", "button[aria-label*='New']", "a[href='/app']"],
+      perplexity: ["a[href='/']", "button[aria-label*='New Thread']", "button[aria-label*='New thread']", "button[title*='New']"]
+    }[modelId] || ["button[aria-label*='New']", "button[title*='New']", "a[href='/']"];
+
+    function isVisible(el) {
+      if (!el || !el.isConnected) return false;
+      const style = window.getComputedStyle(el);
+      if (!style || style.visibility === "hidden" || style.display === "none") return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    const candidates = [];
+    for (const selector of selectors) {
+      try { candidates.push(...Array.from(document.querySelectorAll(selector))); } catch (_) {}
+    }
+
+    function labelFor(el) {
+      return [
+        el.getAttribute?.("aria-label") || "",
+        el.getAttribute?.("title") || "",
+        el.innerText || "",
+        el.textContent || ""
+      ].join(" ").trim().toLowerCase();
+    }
+
+    const ranked = Array.from(new Set(candidates))
+      .filter(isVisible)
+      .map((el) => {
+        const label = labelFor(el);
+        let score = 0;
+        if (/new chat|new thread|new conversation/.test(label)) score += 40;
+        if (/new/.test(label)) score += 12;
+        if (el.tagName === "A") score += 2;
+        const rect = el.getBoundingClientRect();
+        score -= Math.max(0, rect.left) / 1000;
+        score -= Math.max(0, rect.top) / 1000;
+        return { el, score };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const target = ranked[0]?.el;
+    if (!target) return { ok: false, error: "new-chat-not-found" };
+    target.click();
+    return { ok: true };
+  })();`;
+}
+
+async function startNewChatInVisibleModels() {
+  const visibleModelIds = getCompareVisibleModelOrder();
+  const results = [];
+
+  for (const modelId of visibleModelIds) {
+    if (isManualOnlyModel(modelId)) {
+      results.push({ modelId, ok: true, manualOnly: true, method: "manual-only" });
+      continue;
+    }
+
+    const view = views[modelId];
+    const wc = view?.webContents;
+    if (!wc || wc.isDestroyed()) {
+      results.push({ modelId, ok: false, error: "view-unavailable" });
+      continue;
+    }
+
+    const state = ensureLoadState(modelId);
+    if (!state.initialized || state.loading) {
+      results.push({ modelId, ok: false, error: "model-not-ready" });
+      continue;
+    }
+
+    try {
+      const result = await wc.executeJavaScript(buildClickNewChatScript(modelId), true);
+      results.push({ modelId, ok: !!result?.ok, error: result?.error || null, method: "new-chat" });
+    } catch (err) {
+      safeWarn(`Multi-AI-Wrapper: new chat failed for ${modelId}`, err);
+      results.push({ modelId, ok: false, error: "execute-javascript-failed" });
+    }
+  }
+
+  const successCount = results.filter((item) => item.ok && !item.manualOnly).length;
+  const manualCount = results.filter((item) => item.manualOnly).length;
+  const failureCount = results.filter((item) => !item.ok).length;
+  return {
+    ok: failureCount === 0 && results.length > 0,
+    successCount,
+    manualCount,
+    failureCount,
+    totalCount: results.length,
     results
   };
 }
@@ -2100,6 +2421,36 @@ ipcMain.handle("compare:pick-images", async () => {
   }
 });
 
+ipcMain.handle("compare:pick-files", async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false, error: "window-unavailable", files: [] };
+  }
+
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select files for compare view",
+      properties: ["openFile", "multiSelections"]
+    });
+
+    if (result.canceled) {
+      return { ok: true, canceled: true, files: [] };
+    }
+
+    const filePaths = normalizeCompareFilePaths(result.filePaths);
+    return {
+      ok: true,
+      canceled: false,
+      files: filePaths.map((filePath) => ({
+        path: filePath,
+        name: path.basename(filePath)
+      }))
+    };
+  } catch (err) {
+    safeWarn("Multi-AI-Wrapper: compare file picker failed", err);
+    return { ok: false, error: "picker-failed", files: [] };
+  }
+});
+
 ipcMain.handle("appModels:add", (_event, payload) => {
   const name = typeof payload?.name === "string" ? payload.name.trim() : "";
   const url = typeof payload?.url === "string" ? payload.url.trim() : "";
@@ -2360,6 +2711,18 @@ ipcMain.handle("compare:send-prompt", (_event, payload) => {
     }
     return result;
   });
+});
+
+ipcMain.handle("compare:new-chat-visible", () => startNewChatInVisibleModels());
+
+ipcMain.on("compare:composer-height", (_event, payload) => {
+  const height = Number(payload?.height);
+  if (!Number.isFinite(height)) return;
+
+  const nextHeight = Math.max(132, Math.min(300, Math.ceil(height)));
+  if (nextHeight === COMPARE_COMPOSER_HEIGHT) return;
+  COMPARE_COMPOSER_HEIGHT = nextHeight;
+  if (LAYOUT_MODE === "compare") applyCurrentLayout({ forceRepaint: true });
 });
 
 // theme

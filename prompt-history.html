@@ -66,6 +66,31 @@
       background: rgba(255, 255, 255, 0.02);
     }
 
+    .history-search {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .history-search input {
+      width: 100%;
+      height: 34px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--fg);
+      padding: 0 10px;
+      box-sizing: border-box;
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .history-search input:focus {
+      border-color: rgba(245, 158, 11, 0.55);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
     .history-title {
       font-size: 14px;
       font-weight: 700;
@@ -195,6 +220,10 @@
         <div class="history-subtitle">Recent shared prompts for compare mode</div>
       </div>
       <button id="history-clear-button" class="history-clear" type="button">Clear</button>
+    </div>
+
+    <div class="history-search">
+      <input id="history-search-input" type="search" placeholder="Search prompts" autocomplete="off" />
     </div>
 
     <div id="history-list" class="history-list"></div>

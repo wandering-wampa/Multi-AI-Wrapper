@@ -9,19 +9,28 @@ function buildPromptMeta(promptText) {
   return `${singleLine.slice(0, 72)}...`;
 }
 
+let allPrompts = [];
+let searchQuery = "";
+
 function renderHistory(prompts) {
   const listEl = document.getElementById("history-list");
   const clearButton = document.getElementById("history-clear-button");
   if (!listEl || !clearButton) return;
 
-  const items = Array.isArray(prompts) ? prompts : [];
+  allPrompts = Array.isArray(prompts) ? prompts.slice() : [];
+  const query = searchQuery.trim().toLowerCase();
+  const items = query
+    ? allPrompts.filter((prompt) => prompt.toLowerCase().includes(query))
+    : allPrompts;
   listEl.innerHTML = "";
-  clearButton.disabled = items.length === 0;
+  clearButton.disabled = allPrompts.length === 0;
 
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "Shared prompts will appear here after you send them from compare mode.";
+    empty.textContent = allPrompts.length
+      ? "No prompts match that search."
+      : "Shared prompts will appear here after you send them from compare mode.";
     listEl.appendChild(empty);
     return;
   }
@@ -76,6 +85,7 @@ function renderHistory(prompts) {
 
 async function initHistory() {
   const clearButton = document.getElementById("history-clear-button");
+  const searchInput = document.getElementById("history-search-input");
 
   try {
     const theme = await window.electronAPI.getTheme();
@@ -100,6 +110,13 @@ async function initHistory() {
       } catch (err) {
         console.warn("Multi-AI-Wrapper(prompt-history): clearComparePromptHistory failed", err);
       }
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      searchQuery = searchInput.value || "";
+      renderHistory(allPrompts);
     });
   }
 

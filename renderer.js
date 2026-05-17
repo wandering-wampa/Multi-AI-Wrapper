@@ -15,7 +15,8 @@ let layoutMode = "tabs";
 let modelsById = Object.create(null);
 let compareModelIds = [];
 let compareHistoryOpen = false;
-let compareImageAttachments = [];
+let compareAttachments = [];
+let lastCompareResults = [];
 
 // last tab order we rendered (array of model ids)
 let lastTabOrder = [];
@@ -38,6 +39,8 @@ function applyAppSettingsToRenderer(settings) {
   if (typeof settings.hardReloadOnRefresh === "boolean") {
     hardReloadOnRefresh = settings.hardReloadOnRefresh;
   }
+
+  applySetupVisibility(!!settings.needsFirstRunSetup);
 }
 
 function applyLayoutModeToDOM(mode) {
@@ -83,6 +86,38 @@ function initAppSettings() {
   window.electronAPI.onAppSettingsChanged((settings) => {
     applyAppSettingsToRenderer(settings);
   });
+}
+
+function applySetupVisibility(show) {
+  const overlay = document.getElementById("setup-overlay");
+  if (!overlay) return;
+  overlay.hidden = true;
+  overlay.setAttribute("aria-hidden", "true");
+}
+
+function initSetupOverlay() {
+  const startButton = document.getElementById("setup-start-button");
+  const settingsButton = document.getElementById("setup-settings-button");
+
+  if (startButton) {
+    startButton.addEventListener("click", async () => {
+      try {
+        await window.electronAPI.setAppSettings({ setupComplete: true });
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(renderer): setup completion failed", err);
+      }
+    });
+  }
+
+  if (settingsButton) {
+    settingsButton.addEventListener("click", async () => {
+      try {
+        await window.electronAPI.openSettings();
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(renderer): setup settings failed", err);
+      }
+    });
+  }
 }
 
 // -----------------------------
@@ -148,53 +183,120 @@ function initCompareModeButton() {
   });
 }
 
+function initCompareComposerSizing() {
+  const composer = document.getElementById("compare-composer");
+  if (!composer || !window.electronAPI.setCompareComposerHeight) return;
+
+  let lastHeight = 0;
+  const report = () => {
+    const rect = composer.getBoundingClientRect();
+    const height = Math.ceil(rect.height || 0);
+    if (!height || height === lastHeight) return;
+    lastHeight = height;
+    window.electronAPI.setCompareComposerHeight(height);
+  };
+
+  report();
+  if (typeof ResizeObserver === "function") {
+    const observer = new ResizeObserver(report);
+    observer.observe(composer);
+  }
+  window.addEventListener("resize", report);
+}
+
 function buildCompareResultMessage(result) {
   if (!result) return "Shared send failed.";
   if (result.error === "empty-prompt") return "Enter a prompt or attach an image first.";
 
   const total = Number.isFinite(result.totalCount) ? result.totalCount : 0;
   const success = Number.isFinite(result.successCount) ? result.successCount : 0;
+  const manual = Number.isFinite(result.manualCount) ? result.manualCount : 0;
+  const failed = Number.isFinite(result.failureCount) ? result.failureCount : Math.max(0, total - success - manual);
   const attachmentCount = Number.isFinite(result.attachmentCount) ? result.attachmentCount : 0;
+  const fileAttachmentCount = Number.isFinite(result.fileAttachmentCount) ? result.fileAttachmentCount : 0;
   const hasPrompt = !!result.hasPrompt;
   const stagedOnly = attachmentCount > 0;
-  const stagedLabel = hasPrompt ? "Prompt and images staged" : "Images staged";
-  const sentLabel = attachmentCount > 0
-    ? hasPrompt ? "Prompt sent and image paste attempted" : "Image paste attempted"
+  const sentLabel = stagedOnly
+    ? fileAttachmentCount
+      ? hasPrompt ? "Prompt/files staged" : "Files staged"
+      : hasPrompt ? "Prompt/images staged" : "Images staged"
     : "Prompt sent";
-  const failedLabel = attachmentCount > 0
-    ? hasPrompt ? "Prompt/image send failed" : "Image send failed"
-    : "Shared send failed";
 
-  if (stagedOnly) {
-    if (total > 0 && success === total) {
-      return total === 1
-        ? `${stagedLabel}. Submit manually in that pane.`
-        : `${stagedLabel} in ${success}/${total} models. Submit manually in each pane.`;
-    }
+  if (!total) return "No visible compare panes.";
 
-    if (total > 0) {
-      return `${stagedLabel} in ${success}/${total} models. Submit manually where staged; check panes that did not accept it.`;
-    }
+  const parts = [];
+  if (success) parts.push(`${success} ${stagedOnly ? "staged" : "sent"}`);
+  if (manual) parts.push(`${manual} manual`);
+  if (failed) parts.push(`${failed} failed`);
+
+  const suffix = manual
+    ? "Manual panes stay visible for copy/paste."
+    : stagedOnly
+      ? "Submit staged image prompts manually in each pane."
+      : "";
+
+  return `${sentLabel}: ${parts.join(", ")}.${suffix ? ` ${suffix}` : ""}`;
+}
+
+function getCompareResultLabel(result) {
+  if (!result) return "Unknown";
+  if (result.manualOnly) return "Manual";
+  if (result.ok && result.method && result.method.startsWith("staged")) return "Staged";
+  if (result.ok) return "Sent";
+
+  const error = result.error || "";
+  if (error === "model-not-ready") return "Loading";
+  if (error === "composer-not-found" || error === "prepare-failed") return "No composer";
+  if (error === "file-input-not-found") return "No file input";
+  if (error === "file-stage-failed") return "File failed";
+  if (error === "new-chat-not-found") return "No new chat";
+  return "Failed";
+}
+
+function renderCompareResults(results) {
+  const resultsEl = document.getElementById("compare-results");
+  if (!resultsEl) return;
+
+  lastCompareResults = Array.isArray(results) ? results.slice() : [];
+  resultsEl.innerHTML = "";
+  resultsEl.classList.toggle("has-items", lastCompareResults.length > 0);
+
+  for (const result of lastCompareResults) {
+    const chip = document.createElement("span");
+    chip.className = "compare-result-chip";
+    if (result?.manualOnly) chip.classList.add("manual");
+    else if (result?.ok) chip.classList.add("ok");
+    else chip.classList.add("failed");
+
+    const modelName = getModelLabel(result?.modelId);
+    chip.textContent = `${modelName}: ${getCompareResultLabel(result)}`;
+    chip.title = result?.error ? `${modelName}: ${result.error}` : chip.textContent;
+    resultsEl.appendChild(chip);
   }
+}
 
-  if (result.ok) {
-    return total === 1 ? `${sentLabel}.` : `${sentLabel} to ${success}/${total} models.`;
-  }
-
-  if (total > 0) {
-    return `${sentLabel} to ${success}/${total} models. Check panes that were still loading, unsupported, or rejected images.`;
-  }
-
-  return failedLabel;
+function buildNewChatResultMessage(result) {
+  if (!result) return "New chat failed.";
+  const total = Number.isFinite(result.totalCount) ? result.totalCount : 0;
+  const success = Number.isFinite(result.successCount) ? result.successCount : 0;
+  const manual = Number.isFinite(result.manualCount) ? result.manualCount : 0;
+  const failed = Number.isFinite(result.failureCount) ? result.failureCount : Math.max(0, total - success - manual);
+  const parts = [];
+  if (success) parts.push(`${success} started`);
+  if (manual) parts.push(`${manual} manual`);
+  if (failed) parts.push(`${failed} failed`);
+  return parts.length ? `New chat: ${parts.join(", ")}.` : "No visible compare panes.";
 }
 
 function initCompareComposer() {
   const input = document.getElementById("compare-prompt-input");
   const sendButton = document.getElementById("compare-send-button");
+  const newChatButton = document.getElementById("compare-new-chat-button");
   const historyButton = document.getElementById("compare-history-button");
   const attachButton = document.getElementById("compare-attach-button");
+  const fileButton = document.getElementById("compare-file-button");
   const attachmentsEl = document.getElementById("compare-attachments");
-  if (!input || !sendButton || !historyButton || !attachButton || !attachmentsEl) return;
+  if (!input || !sendButton || !newChatButton || !historyButton || !attachButton || !fileButton || !attachmentsEl) return;
 
   const focusCompareInput = () => {
     try {
@@ -207,25 +309,34 @@ function initCompareComposer() {
 
   const renderCompareAttachments = () => {
     attachmentsEl.innerHTML = "";
-    const hasItems = compareImageAttachments.length > 0;
+    const hasItems = compareAttachments.length > 0;
+    const imageCount = compareAttachments.filter((item) => item.type === "image").length;
+    const fileCount = compareAttachments.filter((item) => item.type === "file").length;
     attachmentsEl.classList.toggle("has-items", hasItems);
-    attachButton.classList.toggle("has-items", hasItems);
-    attachButton.title = hasItems ? `Attached images (${compareImageAttachments.length})` : "Attach images";
+    attachButton.classList.toggle("has-items", imageCount > 0);
+    fileButton.classList.toggle("has-items", fileCount > 0);
+    attachButton.title = imageCount ? `Attached images (${imageCount})` : "Attach images";
     attachButton.setAttribute(
       "aria-label",
-      hasItems ? `Attached images (${compareImageAttachments.length})` : "Attach images"
+      imageCount ? `Attached images (${imageCount})` : "Attach images"
+    );
+    fileButton.title = fileCount ? `Attached files (${fileCount})` : "Attach files";
+    fileButton.setAttribute(
+      "aria-label",
+      fileCount ? `Attached files (${fileCount})` : "Attach files"
     );
 
     if (!hasItems) return;
 
-    for (const item of compareImageAttachments) {
+    for (const item of compareAttachments) {
       const chip = document.createElement("div");
       chip.className = "compare-attachment-chip";
+      chip.classList.add(item.type === "file" ? "file" : "image");
 
       const name = document.createElement("span");
       name.className = "compare-attachment-name";
-      name.textContent = item.name || "Image";
-      name.title = item.name || "Image";
+      name.textContent = item.name || (item.type === "file" ? "File" : "Image");
+      name.title = name.textContent;
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -242,11 +353,14 @@ function initCompareComposer() {
 
   const setCompareAttachments = (items) => {
     const next = Array.isArray(items) ? items : [];
-    compareImageAttachments = next
+    compareAttachments = next
       .filter((item) => item && typeof item.path === "string" && item.path)
       .map((item) => ({
         path: item.path,
-        name: typeof item.name === "string" && item.name ? item.name : item.path.split(/[\\/]/).pop() || "Image"
+        type: item.type === "file" ? "file" : "image",
+        name: typeof item.name === "string" && item.name
+          ? item.name
+          : item.path.split(/[\\/]/).pop() || (item.type === "file" ? "File" : "Image")
       }));
     renderCompareAttachments();
   };
@@ -279,22 +393,33 @@ function initCompareComposer() {
 
   const sendPrompt = async () => {
     const promptText = input.value || "";
-    const imagePaths = compareImageAttachments.map((item) => item.path).filter(Boolean);
-    if (!promptText.trim() && imagePaths.length === 0) {
-      setCompareStatus("Enter a prompt or attach an image first.");
+    const imagePaths = compareAttachments
+      .filter((item) => item.type === "image")
+      .map((item) => item.path)
+      .filter(Boolean);
+    const filePaths = compareAttachments
+      .filter((item) => item.type === "file")
+      .map((item) => item.path)
+      .filter(Boolean);
+    if (!promptText.trim() && imagePaths.length === 0 && filePaths.length === 0) {
+      setCompareStatus("Enter a prompt or attach a file first.");
       input.focus();
       return;
     }
 
     sendButton.disabled = true;
     attachButton.disabled = true;
+    fileButton.disabled = true;
+    newChatButton.disabled = true;
     setCompareStatus("Sending...");
+    renderCompareResults([]);
 
     try {
-      const result = await window.electronAPI.sendComparePrompt({ promptText, imagePaths });
+      const result = await window.electronAPI.sendComparePrompt({ promptText, imagePaths, filePaths });
       setCompareStatus(buildCompareResultMessage(result));
+      renderCompareResults(result?.results || []);
 
-      if (result?.ok) {
+      if (result?.ok && !result?.manualCount) {
         input.value = "";
         setCompareAttachments([]);
       }
@@ -304,6 +429,8 @@ function initCompareComposer() {
     } finally {
       sendButton.disabled = false;
       attachButton.disabled = false;
+      fileButton.disabled = false;
+      newChatButton.disabled = false;
       focusCompareInput();
       setTimeout(() => {
         focusCompareInput();
@@ -311,8 +438,36 @@ function initCompareComposer() {
     }
   };
 
+  const startNewChat = async () => {
+    newChatButton.disabled = true;
+    sendButton.disabled = true;
+    attachButton.disabled = true;
+    fileButton.disabled = true;
+    setCompareStatus("Starting new chats...");
+    renderCompareResults([]);
+
+    try {
+      const result = await window.electronAPI.startNewChatInCompare();
+      setCompareStatus(buildNewChatResultMessage(result));
+      renderCompareResults(result?.results || []);
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): new chat failed", err);
+      setCompareStatus("New chat failed.");
+    } finally {
+      newChatButton.disabled = false;
+      sendButton.disabled = false;
+      attachButton.disabled = false;
+      fileButton.disabled = false;
+      focusCompareInput();
+    }
+  };
+
   sendButton.addEventListener("click", () => {
     sendPrompt();
+  });
+
+  newChatButton.addEventListener("click", () => {
+    startNewChat();
   });
 
   historyButton.addEventListener("click", async () => {
@@ -327,18 +482,20 @@ function initCompareComposer() {
       const incoming = Array.isArray(result.images) ? result.images : [];
       if (!incoming.length) return;
 
-      const next = compareImageAttachments.slice();
+      const next = compareAttachments.slice();
       const seen = new Set(next.map((item) => item.path));
       for (const item of incoming) {
         if (!item?.path || seen.has(item.path)) continue;
         seen.add(item.path);
         next.push({
           path: item.path,
+          type: "image",
           name: item.name || item.path.split(/[\\/]/).pop() || "Image"
         });
       }
 
       setCompareAttachments(next);
+      renderCompareResults(lastCompareResults);
       setCompareStatus(
         next.length === 1 ? "1 image attached." : `${next.length} images attached.`
       );
@@ -346,6 +503,37 @@ function initCompareComposer() {
     } catch (err) {
       console.warn("Multi-AI-Wrapper(renderer): pickCompareImages failed", err);
       setCompareStatus("Image picker failed.");
+    }
+  });
+
+  fileButton.addEventListener("click", async () => {
+    try {
+      const result = await window.electronAPI.pickCompareFiles();
+      if (!result?.ok || result?.canceled) return;
+
+      const incoming = Array.isArray(result.files) ? result.files : [];
+      if (!incoming.length) return;
+
+      const next = compareAttachments.slice();
+      const seen = new Set(next.map((item) => item.path));
+      for (const item of incoming) {
+        if (!item?.path || seen.has(item.path)) continue;
+        seen.add(item.path);
+        next.push({
+          path: item.path,
+          type: "file",
+          name: item.name || item.path.split(/[\\/]/).pop() || "File"
+        });
+      }
+
+      setCompareAttachments(next);
+      renderCompareResults(lastCompareResults);
+      const fileCount = next.filter((item) => item.type === "file").length;
+      setCompareStatus(fileCount === 1 ? "1 file attached." : `${fileCount} files attached.`);
+      focusCompareInput();
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper(renderer): pickCompareFiles failed", err);
+      setCompareStatus("File picker failed.");
     }
   });
 
@@ -361,8 +549,8 @@ function initCompareComposer() {
     if (!button) return;
 
     const path = button.dataset.path || "";
-    setCompareAttachments(compareImageAttachments.filter((item) => item.path !== path));
-    setCompareStatus(compareImageAttachments.length ? "Attachment removed." : "");
+    setCompareAttachments(compareAttachments.filter((item) => item.path !== path));
+    setCompareStatus(compareAttachments.length ? "Attachment removed." : "");
     focusCompareInput();
   });
 
@@ -456,7 +644,8 @@ function stateToDotClass(state) {
   if (!state) return "";
   if (state.error) return "error";
   if (state.loading) return "loading";
-  if (state.initialized) return "ready";
+  if (state.composerReady || state.manualOnly) return "ready";
+  if (state.initialized) return "loaded";
   return "";
 }
 
@@ -464,6 +653,11 @@ function getModelLabel(modelId) {
   const m = modelsById[modelId];
   if (m && typeof m.name === "string" && m.name.trim()) return m.name.trim();
   return modelId;
+}
+
+function isManualOnlyModel(modelId) {
+  const m = modelsById[modelId];
+  return !!m && !m.builtIn;
 }
 
 function renderTabs(order) {
@@ -577,6 +771,11 @@ function renderCompareHeaders(order) {
     label.className = "compare-pane-label";
     label.textContent = getModelLabel(model);
 
+    const manualBadge = document.createElement("span");
+    manualBadge.className = "compare-pane-badge";
+    manualBadge.textContent = "Manual";
+    manualBadge.hidden = !isManualOnlyModel(model);
+
     const actions = document.createElement("div");
     actions.className = "compare-pane-actions";
 
@@ -594,10 +793,28 @@ function renderCompareHeaders(order) {
       }
     });
 
+    const hideButton = document.createElement("button");
+    hideButton.type = "button";
+    hideButton.className = "compare-pane-action";
+    hideButton.textContent = "x";
+    hideButton.title = `Hide ${getModelLabel(model)} from compare view`;
+    hideButton.disabled = visibleOrder.length <= 1;
+    hideButton.addEventListener("click", async () => {
+      try {
+        const nextIds = compareModelIds.filter((id) => id !== model);
+        if (!nextIds.length) return;
+        await window.electronAPI.setCompareModels(nextIds);
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(renderer): compare pane hide failed", err);
+      }
+    });
+
     actions.appendChild(openButton);
+    actions.appendChild(hideButton);
     chip.appendChild(dot);
-    chip.appendChild(actions);
     chip.appendChild(label);
+    chip.appendChild(manualBadge);
+    chip.appendChild(actions);
     header.appendChild(chip);
     headersEl.appendChild(header);
   }
@@ -620,8 +837,20 @@ function updateDot(model) {
   const cls = stateToDotClass(state);
 
   for (const dot of document.querySelectorAll(`.status-dot[data-model="${model}"]`)) {
-    dot.classList.remove("loading", "ready", "error");
+    dot.classList.remove("loading", "ready", "loaded", "error");
     if (cls) dot.classList.add(cls);
+    const state = ensureState(model);
+    dot.title = state.error
+      ? "Load failed"
+      : state.loading
+        ? "Loading"
+        : state.manualOnly
+          ? "Manual-only pane"
+          : state.composerReady
+            ? "Composer ready"
+            : state.initialized
+              ? "Loaded; composer not detected yet"
+              : "Not loaded";
   }
 }
 
@@ -678,7 +907,9 @@ function wireIPC() {
     modelStates[payload.model] = {
       initialized: !!payload.initialized,
       loading: !!payload.loading,
-      error: !!payload.error
+      error: !!payload.error,
+      composerReady: !!payload.composerReady,
+      manualOnly: !!payload.manualOnly
     };
     updateDot(payload.model);
   });
@@ -689,7 +920,9 @@ function wireIPC() {
         modelStates[model] = {
           initialized: !!st.initialized,
           loading: !!st.loading,
-          error: !!st.error
+          error: !!st.error,
+          composerReady: !!st.composerReady,
+          manualOnly: !!st.manualOnly
         };
       }
       updateAllDots();
@@ -738,6 +971,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   initCompareModeButton();
   initCompareComposer();
+  initCompareComposerSizing();
+  initSetupOverlay();
   initThemeSync();
   initSettingsButton();
 

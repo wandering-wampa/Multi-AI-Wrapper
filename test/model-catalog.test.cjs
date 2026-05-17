@@ -14,10 +14,10 @@ test("seeds built-in models on first run", () => {
     ["chatgpt", "claude", "copilot", "gemini", "perplexity"]
   );
   assert.deepEqual(state.modelOrder, ["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
-  assert.deepEqual(state.enabledModels, ["chatgpt"]);
+  assert.deepEqual(state.enabledModels, ["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
   assert.equal(state.defaultModel, "chatgpt");
   assert.equal(state.activeModel, "chatgpt");
-  assert.deepEqual(state.compareModelIds, ["chatgpt"]);
+  assert.deepEqual(state.compareModelIds, ["chatgpt", "claude", "copilot", "gemini", "perplexity"]);
 });
 
 test("derives catalog state from persisted custom models and stale preferences", () => {
