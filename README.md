@@ -39,7 +39,7 @@ Supported services:
 - Top-bar status indicators for unloaded, ready, loading, and error states
 - Lazy loading so providers open on first use and stay resident after that
 
-## How to use
+## Standard usage
 
 No API keys are required. Sign in to each provider inside the app.
 
@@ -72,7 +72,7 @@ Electron does not expose macOS system passkeys or Touch ID cleanly inside these 
 **Gemini sign-in / message errors**  
 Gemini can still misbehave inside Electron on macOS. If Gemini fails to sign in or send, complete sign-in once in Safari first and then retry in the app.
 
-## How it works
+## General Information
 
 - The wrapper UI is standard HTML, CSS, and JavaScript.
 - Each provider runs in its own Electron `BrowserView`.
@@ -86,10 +86,6 @@ Provider URLs:
 - Copilot: `https://copilot.microsoft.com/`
 - Gemini: `https://gemini.google.com/app`
 - Perplexity: `https://www.perplexity.ai/`
-
-## Status
-
-Usable. Still being cleaned up.
 
 ## Planned improvements
 
@@ -107,8 +103,3 @@ Usable. Still being cleaned up.
 - ~~Settings split between model management and compare view~~
 - ~~Visual cleanup across the header, tabs, compare controls, and Settings~~
 - Image and file handling beyond the current staged image workflow
-- Export options for notes or app-owned content
-
-## Future improvements
-
-- Response alignment tools for side-by-side review and summary output
