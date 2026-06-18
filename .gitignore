@@ -6,3 +6,7 @@ Thumbs.db
 Multi-AI-Wrapper.rar
 .dev-profile/
 .dev-profile-codex/
+
+# Local session handoffs (wrap-up / pick-up) — not for GitHub
+docs/BRIEF.md
+docs/sessions/
