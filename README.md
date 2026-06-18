@@ -105,8 +105,8 @@ Usable. Still being cleaned up.
 - ~~Compare view persistence across relaunches and model changes~~
 - ~~Shared prompt history for the compare composer~~
 - ~~Settings split between model management and compare view~~
+- ~~Visual cleanup across the header, tabs, compare controls, and Settings~~
 - Image and file handling beyond the current staged image workflow
-- Visual cleanup across the header, tabs, compare controls, and Settings
 - Export options for notes or app-owned content
 
 ## Future improvements
