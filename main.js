@@ -36,7 +36,7 @@ const {
   buildProbePromptTargetScript
 } = require("./lib/provider-delivery.cjs");
 const APP_DISPLAY_NAME = "Multi-AI-Wrapper";
-const APP_ICON_PATH = path.join(__dirname, "assets", "Multi-Ai-logo.ico");
+const APP_ICON_PATH = path.join(__dirname, "assets", "multi-ai-wrapper.ico");
 const GITHUB_REPO_URL = "https://github.com/wandering-wampa/Multi-AI-Wrapper";
 
 let mainWindow;
@@ -851,7 +851,8 @@ function createModelView(modelName) {
   return view;
 }
 
-const TOP_BAR_HEIGHT = 64;
+// Custom title bar (36px) + app bar (56px) = 92px of chrome above the content area.
+const TOP_BAR_HEIGHT = 92;
 let COMPARE_COMPOSER_HEIGHT = 190;
 
 function getContentBounds() {
@@ -2314,6 +2315,45 @@ ipcMain.handle("theme:set", (_event, source) => {
 ipcMain.handle("appSettings:get", () => getAppSettingsPayload());
 ipcMain.handle("appSettings:set", (_event, patch) => applySettingsPatch(patch));
 
+// custom title bar window controls
+ipcMain.on("window:minimize", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.minimize();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: window minimize failed", err);
+  }
+});
+
+ipcMain.on("window:toggle-maximize", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: window toggle-maximize failed", err);
+  }
+});
+
+ipcMain.on("window:close", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.close();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: window close failed", err);
+  }
+});
+
+ipcMain.handle("window:is-maximized", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    return mainWindow.isMaximized();
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: window is-maximized failed", err);
+    return false;
+  }
+});
+
 // -----------------------------
 // Window + menu
 // -----------------------------
@@ -2324,9 +2364,10 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: "#111111",
+    backgroundColor: "#0a0a0b",
     title: APP_DISPLAY_NAME,
     icon: APP_ICON_PATH,
+    frame: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -2336,6 +2377,18 @@ function createWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
+
+  const notifyWindowMaximizeState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      mainWindow.webContents.send("window-maximize-changed", mainWindow.isMaximized());
+    } catch (err) {
+      console.warn("Multi-AI-Wrapper: notifyWindowMaximizeState failed", err);
+    }
+  };
+
+  mainWindow.on("maximize", notifyWindowMaximizeState);
+  mainWindow.on("unmaximize", notifyWindowMaximizeState);
 
   attachShortcutHandler(mainWindow.webContents);
 

@@ -7,71 +7,168 @@
 
 
   <style>
+    /* ----------------------------------------------------------------
+       Design tokens (handoff: Multi-Ai-Wrapper wrapper chrome)
+       Dark is default; light is applied via html[data-theme="light"].
+       ---------------------------------------------------------------- */
     :root {
-      --toolbar-side-padding: 10px;
-      --top-bar-height: 64px;
-      --bg: #111;
-      --fg: #eee;
-      --bar-bg: #181818;
-      --bar-border: #333;
-      --btn-bg: #222;
-      --btn-border: #444;
-      --btn-hover-bg: #2d2d2d;
-      --btn-hover-border: #666;
-      --hint: rgba(238, 238, 238, 0.6);
-      --active-bg: #2d2d2d;
-      --active-border: #6b7280;
-      --composer-bg: rgba(22, 22, 22, 0.98);
-      --composer-input-bg: #1f1f1f;
-      --composer-input-border: rgba(148, 163, 184, 0.55);
-      --composer-accent: rgba(96, 165, 250, 0.78);
+      --win: #0a0a0b;
+      --title: #161618;
+      --tab: #0f0f11;
+      --text: #e9e9ea;
+      --muted: #8b8b90;
+      --border: rgba(255, 255, 255, 0.09);
+      --panel: #1b1b1d;
+      --hover: rgba(255, 255, 255, 0.07);
+      --selected: rgba(255, 255, 255, 0.06);
+      --selected-border: rgba(255, 255, 255, 0.18);
+
+      --accent: #2f6fed;
+      --accent-strong: #5b9bff;
+      --accent-soft: rgba(47, 111, 237, 0.16);
+      --green: #3fbf7f;
+      --close-red: #e81123;
+
+      --composer-input-bg: #151517;
+      --titlebar-height: 36px;
+      --appbar-height: 56px;
     }
 
     html[data-theme="light"] {
-      --bg: #f6f7f9;
-      --fg: #0f172a;
-      --bar-bg: #ffffff;
-      --bar-border: #e5e7eb;
-      --btn-bg: #ffffff;
-      --btn-border: #d1d5db;
-      --btn-hover-bg: #f3f4f6;
-      --btn-hover-border: #9ca3af;
-      --hint: rgba(15, 23, 42, 0.55);
-      --active-bg: #e5e7eb;
-      --active-border: #9ca3af;
-      --composer-bg: rgba(255, 255, 255, 0.98);
+      --win: #cfd0d6;
+      --title: #e7e7ea;
+      --tab: #f2f2f4;
+      --text: #1c1c1f;
+      --muted: #65656b;
+      --border: rgba(0, 0, 0, 0.12);
+      --panel: #ffffff;
+      --hover: rgba(0, 0, 0, 0.05);
+      --selected: rgba(0, 0, 0, 0.05);
+      --selected-border: rgba(0, 0, 0, 0.18);
+
       --composer-input-bg: #ffffff;
-      --composer-input-border: rgba(148, 163, 184, 0.78);
-      --composer-accent: rgba(37, 99, 235, 0.72);
     }
+
+    * { box-sizing: border-box; }
 
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      background-color: var(--bg);
-      color: var(--fg);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background-color: var(--win);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       overflow: hidden;
     }
 
-    #top-bar {
-      position: relative;
-      height: var(--top-bar-height);
+    /* ----------------------------------------------------------------
+       Title bar (36px) — custom Windows chrome
+       ---------------------------------------------------------------- */
+    #title-bar {
+      height: var(--titlebar-height);
       display: flex;
       align-items: center;
-      justify-content: flex-start;
+      justify-content: space-between;
+      background: var(--title);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+
+    .titlebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 12px;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: 6px 6px;
+      grid-template-rows: 6px 6px;
+      gap: 2px;
+    }
+
+    .brand-mark span {
+      width: 6px;
+      height: 6px;
+      border-radius: 2px;
+    }
+
+    .brand-mark span:nth-child(1) { background: #20b8a8; }
+    .brand-mark span:nth-child(2) { background: #d97757; }
+    .brand-mark span:nth-child(3) { background: #19c37d; }
+    .brand-mark span:nth-child(4) { background: #4285f4; }
+
+    .titlebar-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .window-controls {
+      display: flex;
+      align-items: stretch;
+      height: 100%;
       -webkit-app-region: no-drag;
+    }
+
+    .window-control {
+      width: 46px;
+      height: var(--titlebar-height);
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       padding: 0;
-      box-sizing: border-box;
-      border-bottom: 1px solid var(--bar-border);
+    }
+
+    .window-control:hover {
+      background: var(--hover);
+      color: var(--text);
+    }
+
+    .window-control.close:hover {
+      background: var(--close-red);
+      color: #fff;
+    }
+
+    .window-control svg { display: block; }
+
+    .window-control .ico-restore { display: none; }
+    body[data-window-maximized="true"] .window-control.maximize .ico-maximize { display: none; }
+    body[data-window-maximized="true"] .window-control.maximize .ico-restore { display: block; }
+
+    /* ----------------------------------------------------------------
+       App bar (56px) — provider tabs + view toggle + settings
+       ---------------------------------------------------------------- */
+    #app-bar {
+      position: relative;
+      height: var(--appbar-height);
+      display: flex;
+      align-items: center;
+      background: var(--tab);
+      border-bottom: 1px solid var(--border);
+      padding: 0 14px;
+      gap: 10px;
+      -webkit-app-region: no-drag;
     }
 
     #nav-strip {
       flex: 1 1 auto;
       min-width: 0;
-      width: 100%;
       height: 100%;
       display: flex;
       align-items: center;
@@ -84,63 +181,76 @@
       gap: 6px;
       height: 100%;
       flex: 1 1 auto;
-      box-sizing: border-box;
       overflow-x: auto;
-      padding: 0 var(--toolbar-side-padding);
-      -webkit-app-region: no-drag;
+      scrollbar-width: thin;
+    }
+
+    /* Keep tabs clear of the absolutely-positioned actions cluster. */
+    body[data-layout-mode="tabs"] #tabs {
+      padding-right: 196px;
+    }
+
+    body[data-layout-mode="compare"] #tabs {
+      display: none;
     }
 
     .tab-button {
       position: relative;
-      background: var(--btn-bg);
-      border: 1px solid var(--btn-border);
-      border-radius: 6px;
-      padding: 6px 10px;
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      background: transparent;
       cursor: pointer;
-      color: var(--fg);
+      color: var(--muted);
+      font: inherit;
       font-size: 13px;
-      display: flex;
+      font-weight: 500;
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      white-space: nowrap;
+      flex: 0 0 auto;
       user-select: none;
-      -webkit-app-region: no-drag;
     }
 
     .tab-button:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
+      background: var(--hover);
     }
 
     .tab-button.active {
-      background: var(--active-bg);
-      border-color: var(--active-border);
-      outline: 2px solid rgba(96, 165, 250, 0.65);
-      outline-offset: 0px;
+      border-color: var(--selected-border);
+      background: var(--selected);
+      color: var(--text);
+      font-weight: 600;
     }
 
     .status-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #666;
+      opacity: 0.4;
+      flex: 0 0 auto;
+      transition: opacity 0.15s ease;
     }
 
-    .status-dot.loading { background: #fbbf24; }
-    .status-dot.loaded { background: #60a5fa; }
-    .status-dot.ready { background: #22c55e; }
-    .status-dot.error { background: #ef4444; }
+    .tab-button.active .status-dot { opacity: 1; }
 
-    #actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      -webkit-app-region: no-drag;
+    .status-dot.loading {
+      animation: dot-pulse 1s ease-in-out infinite;
     }
 
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* Actions cluster — pinned right so nav-strip can span full width. */
     #top-bar-actions {
       position: absolute;
       top: 50%;
-      right: 10px;
+      right: 14px;
       transform: translateY(-50%);
       display: flex;
       align-items: center;
@@ -149,13 +259,53 @@
       z-index: 4;
     }
 
-    .icon-button {
-      width: 34px;
-      height: 34px;
+    .view-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      background: var(--win);
+      border: 1px solid var(--border);
       border-radius: 10px;
-      border: 1px solid var(--btn-border);
-      background: var(--btn-bg);
-      color: var(--fg);
+      padding: 3px;
+    }
+
+    .view-segment {
+      height: 28px;
+      padding: 0 14px;
+      border: none;
+      background: transparent;
+      border-radius: 7px;
+      cursor: pointer;
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .view-segment:hover { color: var(--text); }
+
+    .view-segment.active {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    html[data-theme="light"] .view-segment.active {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .view-segment svg { display: block; }
+
+    .icon-button {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -165,64 +315,15 @@
     }
 
     .icon-button:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
+      background: var(--hover);
+      color: var(--text);
     }
 
-    .icon-button:active {
-      transform: translateY(1px);
-    }
+    .icon-button svg { display: block; }
 
-    .icon-button.active {
-      background: var(--active-bg);
-      border-color: var(--active-border);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
-    }
-
-    .icon {
-      font-size: 16px;
-      line-height: 1;
-    }
-
-    .toolbar-button {
-      height: 34px;
-      width: 112px;
-      padding: 0 12px;
-      border-radius: 10px;
-      border: 1px solid var(--btn-border);
-      background: var(--btn-bg);
-      color: var(--fg);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      -webkit-app-region: no-drag;
-      user-select: none;
-    }
-
-    .toolbar-button:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
-    }
-
-    .toolbar-button:active {
-      transform: translateY(1px);
-    }
-
-    .toolbar-button.active {
-      background: var(--active-bg);
-      border-color: var(--active-border);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.45);
-    }
-
-    .toolbar-button-label {
-      white-space: nowrap;
-    }
-
+    /* ----------------------------------------------------------------
+       Compare pane headers (occupies the nav strip in compare mode)
+       ---------------------------------------------------------------- */
     #compare-pane-headers {
       height: 100%;
       flex: 1 1 auto;
@@ -230,16 +331,7 @@
       min-width: 0;
       display: none;
       grid-template-columns: repeat(1, minmax(0, 1fr));
-      box-sizing: border-box;
       -webkit-app-region: no-drag;
-    }
-
-    body[data-layout-mode="compare"] #tabs {
-      display: none;
-    }
-
-    body[data-layout-mode="tabs"] #tabs {
-      padding-right: 180px;
     }
 
     body[data-layout-mode="compare"] #compare-pane-headers {
@@ -250,8 +342,7 @@
       min-width: 0;
       display: flex;
       align-items: center;
-      border-right: 1px solid var(--bar-border);
-      box-sizing: border-box;
+      border-right: 1px solid var(--border);
       min-height: 0;
     }
 
@@ -262,32 +353,24 @@
     .compare-pane-chip {
       width: 100%;
       min-width: 0;
-      height: 32px;
+      height: 38px;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 0 10px;
-      border-radius: 8px;
+      gap: 9px;
+      padding: 0 12px;
+      border-radius: 9px;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--fg);
+      color: var(--text);
       cursor: default;
       font: inherit;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
-      box-sizing: border-box;
-      -webkit-app-region: no-drag;
-    }
-
-    .compare-pane-chip:hover {
-      background: transparent;
-      border-color: transparent;
     }
 
     .compare-pane-chip.active {
-      background: var(--active-bg);
-      border-color: var(--active-border);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.22);
+      background: var(--selected);
+      border-color: var(--selected-border);
     }
 
     .compare-pane-label {
@@ -301,16 +384,14 @@
       flex: 0 0 auto;
       padding: 2px 6px;
       border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      color: var(--hint);
+      border: 1px solid var(--border);
+      color: var(--muted);
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
     }
 
-    .compare-pane-badge[hidden] {
-      display: none;
-    }
+    .compare-pane-badge[hidden] { display: none; }
 
     .compare-pane-actions {
       display: inline-flex;
@@ -320,25 +401,25 @@
     }
 
     .compare-pane-action {
-      width: 20px;
-      height: 20px;
-      border-radius: 999px;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
       border: none;
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--hint);
+      background: transparent;
+      color: var(--muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       font: inherit;
-      font-size: 12px;
+      font-size: 13px;
       line-height: 1;
       flex: 0 0 auto;
     }
 
     .compare-pane-action:hover {
-      background: rgba(96, 165, 250, 0.18);
-      color: #bfdbfe;
+      background: var(--hover);
+      color: var(--text);
     }
 
     .compare-pane-action:disabled {
@@ -347,20 +428,22 @@
     }
 
     .compare-pane-action:focus-visible {
-      outline: 2px solid rgba(96, 165, 250, 0.55);
+      outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
 
+    /* ----------------------------------------------------------------
+       Compare unified composer (bottom, compare mode only)
+       ---------------------------------------------------------------- */
     #compare-composer {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
       display: none;
-      padding: 10px 12px 12px;
-      background: linear-gradient(180deg, var(--composer-bg), var(--bg));
-      border-top: 1px solid var(--bar-border);
-      box-sizing: border-box;
+      padding: 14px 18px 10px;
+      background: var(--tab);
+      border-top: 1px solid var(--border);
       z-index: 20;
     }
 
@@ -369,8 +452,10 @@
     }
 
     .compare-composer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 204px;
+      grid-template-columns: minmax(0, 1fr) 220px;
       gap: 12px;
       align-items: stretch;
     }
@@ -380,6 +465,16 @@
       flex-direction: column;
       gap: 8px;
       min-width: 0;
+    }
+
+    .compare-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 11px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
     .compare-attachments {
@@ -402,9 +497,9 @@
       max-width: 260px;
       padding: 6px 8px 6px 10px;
       border-radius: 999px;
-      border: 1px solid var(--composer-input-border);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--fg);
+      border: 1px solid var(--border);
+      background: var(--hover);
+      color: var(--text);
       font-size: 12px;
       white-space: nowrap;
       flex: 0 0 auto;
@@ -421,8 +516,8 @@
       height: 18px;
       border: none;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--hint);
+      background: var(--hover);
+      color: var(--muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -431,32 +526,33 @@
       font-size: 12px;
       line-height: 1;
       flex: 0 0 auto;
-      -webkit-app-region: no-drag;
     }
 
     .compare-attachment-remove:hover {
-      background: rgba(245, 158, 11, 0.2);
-      color: var(--fg);
+      background: rgba(232, 17, 35, 0.18);
+      color: var(--text);
     }
 
     #compare-prompt-input {
       width: 100%;
-      min-height: 82px;
+      min-height: 64px;
       resize: none;
       border-radius: 10px;
-      border: 1px solid var(--composer-input-border);
+      border: 1px solid var(--border);
       background: var(--composer-input-bg);
-      color: var(--fg);
-      padding: 12px 14px;
-      box-sizing: border-box;
+      color: var(--text);
+      padding: 11px 12px;
       font: inherit;
-      line-height: 1.45;
+      font-size: 15px;
+      line-height: 1.5;
       outline: none;
     }
 
+    #compare-prompt-input::placeholder { color: var(--muted); }
+
     #compare-prompt-input:focus {
-      border-color: var(--composer-accent);
-      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
     }
 
     .compare-composer-meta {
@@ -471,7 +567,6 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      align-items: stretch;
       justify-content: flex-start;
     }
 
@@ -489,29 +584,31 @@
       width: 42px;
       min-width: 42px;
       height: 42px;
-      border-radius: 10px;
-      border: 1px solid var(--composer-input-border);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--fg);
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.15s ease, border-color 0.15s ease;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     }
 
     .compare-history-button:hover,
     .compare-attach-button:hover,
     .compare-file-button:hover,
     .compare-new-chat-button:hover {
-      background: rgba(255, 255, 255, 0.14);
-      border-color: var(--composer-accent);
+      background: var(--hover);
+      color: var(--text);
     }
 
-    .compare-history-button.active {
-      background: rgba(96, 165, 250, 0.18);
-      border-color: var(--composer-accent);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
+    .compare-history-button.active,
+    .compare-attach-button.has-items,
+    .compare-file-button.has-items {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent-strong);
     }
 
     .compare-history-button svg,
@@ -523,28 +620,21 @@
       display: block;
     }
 
-    .compare-attach-button.has-items,
-    .compare-file-button.has-items {
-      background: rgba(96, 165, 250, 0.18);
-      border-color: var(--composer-accent);
-      box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
-    }
-
     .composer-send-button {
       height: 42px;
       flex: 1 1 auto;
-      border-radius: 10px;
-      border: 1px solid var(--composer-accent);
-      background: rgba(96, 165, 250, 0.18);
-      color: var(--fg);
+      border-radius: 9px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
       cursor: pointer;
       font: inherit;
       font-weight: 600;
     }
 
     .composer-send-button:hover {
-      background: rgba(96, 165, 250, 0.26);
-      border-color: var(--composer-accent);
+      background: #3b78f0;
+      border-color: #3b78f0;
     }
 
     .composer-send-button:disabled,
@@ -563,50 +653,51 @@
       min-height: 0;
     }
 
-    .compare-results.has-items {
-      display: flex;
-    }
+    .compare-results.has-items { display: flex; }
 
     .compare-result-chip {
       padding: 4px 7px;
       border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      background: rgba(148, 163, 184, 0.12);
-      color: var(--hint);
+      border: 1px solid var(--border);
+      background: var(--hover);
+      color: var(--muted);
       font-size: 11px;
       line-height: 1;
       white-space: nowrap;
     }
 
     .compare-result-chip.ok {
-      border-color: rgba(34, 197, 94, 0.35);
-      color: #86efac;
+      border-color: rgba(63, 191, 127, 0.4);
+      color: #6fdca6;
     }
 
     .compare-result-chip.manual {
-      border-color: rgba(96, 165, 250, 0.38);
-      color: #93c5fd;
+      border-color: rgba(91, 155, 255, 0.42);
+      color: var(--accent-strong);
     }
 
     .compare-result-chip.failed {
-      border-color: rgba(239, 68, 68, 0.38);
-      color: #fca5a5;
+      border-color: rgba(232, 17, 35, 0.42);
+      color: #ff8a8a;
     }
 
     .compare-status {
       min-height: 18px;
       font-size: 12px;
-      color: var(--fg);
+      color: var(--text);
       opacity: 0.78;
       line-height: 1.35;
     }
 
     .compare-hint {
-      font-size: 11px;
-      color: var(--hint);
+      font-size: 11.5px;
+      color: var(--muted);
       line-height: 1.35;
     }
 
+    /* ----------------------------------------------------------------
+       First-run setup overlay
+       ---------------------------------------------------------------- */
     .setup-overlay {
       position: fixed;
       inset: 0;
@@ -614,38 +705,35 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.58);
+      background: rgba(0, 0, 0, 0.55);
       padding: 24px;
-      box-sizing: border-box;
       -webkit-app-region: no-drag;
     }
 
-    .setup-overlay[hidden] {
-      display: none;
-    }
+    .setup-overlay[hidden] { display: none; }
 
     .setup-panel {
       width: min(520px, 100%);
-      border: 1px solid var(--bar-border);
-      border-radius: 12px;
-      background: var(--bar-bg);
-      color: var(--fg);
-      padding: 22px;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
-      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 24px;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
     }
 
     .setup-panel h1 {
       margin: 0 0 8px;
-      font-size: 20px;
+      font-size: 21px;
+      font-weight: 700;
       line-height: 1.2;
     }
 
     .setup-panel p {
-      margin: 0 0 16px;
-      color: var(--hint);
-      line-height: 1.5;
-      font-size: 13px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
     }
 
     .setup-actions {
@@ -656,51 +744,92 @@
 
     .setup-action {
       height: 36px;
-      padding: 0 14px;
-      border-radius: 8px;
-      border: 1px solid var(--btn-border);
-      background: var(--btn-bg);
-      color: var(--fg);
+      padding: 0 16px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
       cursor: pointer;
       font: inherit;
       font-weight: 600;
     }
 
+    .setup-action:hover { background: var(--hover); }
+
     .setup-action.primary {
-      border-color: var(--composer-accent);
-      background: rgba(96, 165, 250, 0.2);
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
     }
+
+    .setup-action.primary:hover { background: #3b78f0; }
 
     @media (max-width: 840px) {
       .compare-composer-inner {
         grid-template-columns: 1fr;
       }
-
-      #compare-prompt-input {
-        min-height: 80px;
-      }
     }
   </style>
 </head>
 
-<body>
+<body data-window-maximized="false">
   <div id="header-shell">
-    <div id="top-bar">
+    <div id="title-bar">
+      <div class="titlebar-brand">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </span>
+        <span class="titlebar-title">Multi-AI-Wrapper</span>
+      </div>
+      <div class="window-controls">
+        <button id="window-minimize" class="window-control minimize" type="button" title="Minimize" aria-label="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M1 5h8" stroke="currentColor" stroke-width="1" stroke-linecap="round"></path>
+          </svg>
+        </button>
+        <button id="window-maximize" class="window-control maximize" type="button" title="Maximize" aria-label="Maximize">
+          <svg class="ico-maximize" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0.75" y="0.75" width="8.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1"></rect>
+          </svg>
+          <svg class="ico-restore" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0.75" y="2.5" width="6.75" height="6.75" rx="1.3" fill="none" stroke="currentColor" stroke-width="1"></rect>
+            <path d="M3 2.5V1.6a1 1 0 0 1 1-1h4.4a1 1 0 0 1 1 1V6a1 1 0 0 1-1 1h-.9" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <button id="window-close" class="window-control close" type="button" title="Close" aria-label="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M1 1l8 8M9 1l-8 8" stroke="currentColor" stroke-width="1" stroke-linecap="round"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="app-bar">
       <div id="nav-strip">
         <div id="tabs"></div>
         <div id="compare-pane-headers" aria-hidden="true"></div>
       </div>
       <div id="top-bar-actions">
-        <button id="compare-mode-button" class="toolbar-button" title="Compare view" aria-pressed="false" aria-label="Compare view">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <rect x="1.5" y="2" width="4" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
-            <rect x="10.5" y="2" width="4" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
-            <path d="M7.9 4.5h.2M7.9 8h.2M7.9 11.5h.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+        <div id="view-toggle" class="view-toggle" role="group" aria-label="View mode">
+          <button class="view-segment active" data-mode="single" type="button" aria-pressed="true" title="Single view">
+            <svg width="15" height="14" viewBox="0 0 15 14" aria-hidden="true">
+              <rect x="2" y="2" width="11" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+            </svg>
+            <span class="view-segment-label">Single</span>
+          </button>
+          <button class="view-segment" data-mode="compare" type="button" aria-pressed="false" title="Compare view">
+            <svg width="15" height="14" viewBox="0 0 15 14" aria-hidden="true">
+              <rect x="1.5" y="2" width="5" height="10" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+              <rect x="8.5" y="2" width="5" height="10" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+            </svg>
+            <span class="view-segment-label">Compare</span>
+          </button>
+        </div>
+        <button id="settings-button" class="icon-button" title="Settings" aria-label="Settings">
+          <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.3"></circle>
+            <path d="M8.5 1.4v1.7M8.5 13.9v1.7M1.4 8.5h1.7M13.9 8.5h1.7M3.5 3.5l1.2 1.2M12.3 12.3l1.2 1.2M13.5 3.5l-1.2 1.2M4.7 12.3l-1.2 1.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path>
           </svg>
-          <span class="toolbar-button-label" id="compare-mode-button-label">Compare</span>
-        </button>
-        <button id="settings-button" class="icon-button" title="Settings">
-          <span class="icon">⚙</span>
         </button>
       </div>
     </div>
@@ -709,8 +838,10 @@
   <div id="compare-composer" aria-hidden="true">
     <div class="compare-composer-inner">
       <div class="compare-composer-main">
-        <div id="compare-attachments" class="compare-attachments" aria-live="polite"></div>
-        <textarea id="compare-prompt-input" placeholder="Send a prompt to all visible models" spellcheck="true"></textarea>
+        <div class="compare-card">
+          <div id="compare-attachments" class="compare-attachments" aria-live="polite"></div>
+          <textarea id="compare-prompt-input" placeholder="Send a prompt to all visible models" spellcheck="true"></textarea>
+        </div>
         <div class="compare-composer-meta">
           <div id="compare-results" class="compare-results" aria-live="polite"></div>
           <div id="compare-status" class="compare-status"></div>

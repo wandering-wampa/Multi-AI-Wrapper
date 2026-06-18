@@ -64,6 +64,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openSettings: () => ipcRenderer.invoke("settings:open"),
   closeSettings: () => ipcRenderer.send("settings:close"),
 
+  // custom title bar window controls
+  minimizeWindow: () => ipcRenderer.send("window:minimize"),
+  toggleMaximizeWindow: () => ipcRenderer.send("window:toggle-maximize"),
+  closeWindow: () => ipcRenderer.send("window:close"),
+  isWindowMaximized: () => ipcRenderer.invoke("window:is-maximized"),
+  onWindowMaximizeChanged: (callback) => {
+    ipcRenderer.on("window-maximize-changed", (_event, isMaximized) => callback(!!isMaximized));
+  },
+
   // events
   onActiveModelChanged: (callback) => {
     ipcRenderer.on("active-model-changed", (_event, modelName) => callback(modelName));

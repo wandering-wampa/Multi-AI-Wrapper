@@ -6,22 +6,39 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';">
   <style>
     :root {
-      --bg: #0b0b0b;
-      --panel: #111;
-      --panel-2: #161616;
-      --text: #e6e6e6;
-      --muted: #9a9a9a;
-      --accent: #3b82f6;
-      --border: #242424;
+      --bg: #1b1b1d;
+      --panel: #0f0f11;
+      --panel-2: #232325;
+      --text: #e9e9ea;
+      --muted: #8b8b90;
+      --accent: #2f6fed;
+      --accent-strong: #5b9bff;
+      --accent-soft: rgba(47, 111, 237, 0.13);
+      --border: rgba(255, 255, 255, 0.09);
+      --hover: rgba(255, 255, 255, 0.07);
+      --toggle-off: #4a4a50;
+      --green: #3fbf7f;
       --danger: #ef4444;
       --danger-bg: rgba(239, 68, 68, 0.12);
+    }
+
+    html[data-theme="light"] {
+      --bg: #ffffff;
+      --panel: #f2f2f4;
+      --panel-2: #e9e9ec;
+      --text: #1c1c1f;
+      --muted: #65656b;
+      --accent-soft: rgba(47, 111, 237, 0.12);
+      --border: rgba(0, 0, 0, 0.12);
+      --hover: rgba(0, 0, 0, 0.05);
+      --toggle-off: #c2c2c8;
     }
 
     body {
       margin: 0;
       height: 100vh;
       background: rgba(0, 0, 0, 0.55);
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
       color: var(--text);
       display: flex;
       align-items: center;
@@ -29,11 +46,14 @@
     }
 
     .modal {
-      width: 900px;
-      height: 560px;
+      width: 920px;
+      max-width: 92%;
+      height: 580px;
+      max-height: 88%;
       background: var(--bg);
-      border-radius: 10px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.5);
       display: flex;
       overflow: hidden;
     }
@@ -48,26 +68,28 @@
     }
 
     .nav-title {
-      font-size: 12px;
+      font-size: 11px;
+      font-weight: 700;
       color: var(--muted);
       text-transform: uppercase;
       padding: 8px 12px;
-      letter-spacing: 0.06em;
+      letter-spacing: 1px;
     }
 
     .nav-item {
       padding: 10px 12px;
       margin: 2px 4px;
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 14px;
+      font-weight: 500;
     }
 
-    .nav-item:hover { background: var(--panel-2); }
+    .nav-item:hover { background: var(--hover); }
 
     .nav-item.active {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent-strong);
     }
 
     .content {
@@ -77,10 +99,10 @@
     }
 
     .content-header {
-      padding: 18px 24px;
+      padding: 20px 34px;
       border-bottom: 1px solid var(--border);
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 21px;
+      font-weight: 700;
     }
 
     .content-body {
@@ -142,44 +164,50 @@
     .radio {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       cursor: pointer;
       font-size: 14px;
     }
 
-    /* simple toggle */
+    .radio input[type="radio"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* toggle switch — track 42x24, knob 20x20 (handoff spec) */
     .toggle {
       position: relative;
-      width: 44px;
+      width: 42px;
       height: 24px;
       display: inline-block;
+      flex: 0 0 auto;
     }
     .toggle input { display: none; }
     .slider {
       position: absolute;
       cursor: pointer;
       inset: 0;
-      background: #2a2a2a;
-      border: 1px solid var(--border);
-      border-radius: 999px;
+      background: var(--toggle-off);
+      border-radius: 13px;
       transition: 0.15s;
     }
     .slider:before {
       content: "";
       position: absolute;
-      height: 18px;
-      width: 18px;
-      left: 3px;
+      height: 20px;
+      width: 20px;
+      left: 2px;
       top: 2px;
-      background: #d8d8d8;
+      background: #fff;
       border-radius: 999px;
       transition: 0.15s;
     }
     .toggle input:checked + .slider {
-      background: rgba(59,130,246,0.35);
-      border-color: rgba(59,130,246,0.45);
+      background: var(--accent);
     }
-    .toggle input:checked + .slider:before { transform: translateX(20px); }
+    .toggle input:checked + .slider:before { transform: translateX(18px); }
 
     select {
       background: var(--panel-2);
@@ -283,7 +311,7 @@
     }
 
     .icon-btn:hover {
-      background: rgba(255,255,255,0.06);
+      background: var(--hover);
     }
 
     .icon-btn.danger {
@@ -310,17 +338,17 @@
       gap: 8px;
     }
 
-    .btn:hover { background: #1d1d1d; }
+    .btn:hover { background: var(--hover); }
 
     .btn.primary {
-      border-color: rgba(59,130,246,0.45);
-      background: rgba(59,130,246,0.18);
-      color: #cfe2ff;
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
     }
 
     .btn.primary:hover {
-      border-color: rgba(59,130,246,0.65);
-      background: rgba(59,130,246,0.24);
+      border-color: #3b78f0;
+      background: #3b78f0;
     }
 
     .btn:disabled {
@@ -482,7 +510,7 @@
       cursor: pointer;
     }
 
-    .close-btn:hover { background: #1d1d1d; }
+    .close-btn:hover { background: var(--hover); }
 
     .page { display: none; }
     .page.active { display: block; }
@@ -773,6 +801,11 @@
       themeRadios.forEach(r => r.checked = (r.value === source));
     }
 
+    function applyThemeToDOM(payload) {
+      const effective = payload && payload.shouldUseDarkColors === false ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", effective);
+    }
+
     themeRadios.forEach(radio => {
       radio.addEventListener("change", () => {
         if (radio.checked) window.electronAPI.setTheme(radio.value);
@@ -781,7 +814,13 @@
 
     window.electronAPI.onThemeChanged(payload => {
       if (payload?.source) setThemeRadios(payload.source);
+      applyThemeToDOM(payload);
     });
+
+    // Initial theme paint (radios are refined later from app settings).
+    window.electronAPI.getTheme()
+      .then(applyThemeToDOM)
+      .catch(() => document.documentElement.setAttribute("data-theme", "dark"));
 
     // -----------------------------
     // Local caches

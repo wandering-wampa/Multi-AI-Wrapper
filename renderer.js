@@ -1,5 +1,22 @@
 // renderer.js
 
+// Provider brand colors for tab/pane status dots. Custom (user-added) models
+// fall back to a neutral dot.
+const BRAND_COLORS = Object.create(null);
+BRAND_COLORS.perplexity = "#20b8a8";
+BRAND_COLORS.claude = "#d97757";
+BRAND_COLORS.chatgpt = "#19c37d";
+BRAND_COLORS.gemini = "#4285f4";
+BRAND_COLORS.copilot = "#2aa9c4";
+
+const NEUTRAL_DOT_COLOR = "#8b8b90";
+const LOADING_DOT_COLOR = "#fbbf24";
+const ERROR_DOT_COLOR = "#ef4444";
+
+function brandColorForModel(modelId) {
+  return BRAND_COLORS[modelId] || NEUTRAL_DOT_COLOR;
+}
+
 let activeModel = null;
 
 // load states keyed by model
@@ -47,17 +64,13 @@ function applyLayoutModeToDOM(mode) {
   const compareMode = mode === "compare" ? "compare" : "tabs";
   document.body.setAttribute("data-layout-mode", compareMode);
 
-  const compareButton = document.getElementById("compare-mode-button");
-  if (compareButton) {
-    const active = compareMode === "compare";
-    const label = active ? "Single view" : "Compare view";
-    const labelEl = document.getElementById("compare-mode-button-label");
-    compareButton.classList.toggle("active", active);
-    compareButton.setAttribute("aria-pressed", active ? "true" : "false");
-    compareButton.title = label;
-    compareButton.setAttribute("aria-label", label);
-    if (labelEl) labelEl.textContent = active ? "Single" : "Compare";
-  }
+  const uiMode = compareMode === "compare" ? "compare" : "single";
+  const segments = document.querySelectorAll(".view-segment");
+  segments.forEach((segment) => {
+    const isActive = segment.dataset.mode === uiMode;
+    segment.classList.toggle("active", isActive);
+    segment.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
 
   const composer = document.getElementById("compare-composer");
   if (composer) {
@@ -169,18 +182,65 @@ function applyCompareHistoryVisibility(open) {
   historyButton.setAttribute("aria-expanded", compareHistoryOpen ? "true" : "false");
 }
 
-function initCompareModeButton() {
-  const btn = document.getElementById("compare-mode-button");
-  if (!btn) return;
+function initViewToggle() {
+  const segments = document.querySelectorAll(".view-segment");
+  if (!segments.length) return;
 
-  btn.addEventListener("click", async () => {
-    try {
-      const nextMode = layoutMode === "compare" ? "tabs" : "compare";
-      await window.electronAPI.setAppSettings({ layoutMode: nextMode });
-    } catch (err) {
-      console.warn("Multi-AI-Wrapper(renderer): compare mode toggle failed", err);
-    }
+  segments.forEach((segment) => {
+    segment.addEventListener("click", async () => {
+      const nextMode = segment.dataset.mode === "compare" ? "compare" : "tabs";
+      if (nextMode === layoutMode) return;
+      try {
+        await window.electronAPI.setAppSettings({ layoutMode: nextMode });
+      } catch (err) {
+        console.warn("Multi-AI-Wrapper(renderer): view toggle failed", err);
+      }
+    });
   });
+}
+
+function initWindowControls() {
+  const minimizeBtn = document.getElementById("window-minimize");
+  const maximizeBtn = document.getElementById("window-maximize");
+  const closeBtn = document.getElementById("window-close");
+
+  if (minimizeBtn) {
+    minimizeBtn.addEventListener("click", () => {
+      window.electronAPI.minimizeWindow();
+    });
+  }
+
+  if (maximizeBtn) {
+    maximizeBtn.addEventListener("click", () => {
+      window.electronAPI.toggleMaximizeWindow();
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      window.electronAPI.closeWindow();
+    });
+  }
+
+  const applyMaximizeState = (isMaximized) => {
+    document.body.setAttribute("data-window-maximized", isMaximized ? "true" : "false");
+    if (maximizeBtn) {
+      const label = isMaximized ? "Restore" : "Maximize";
+      maximizeBtn.title = label;
+      maximizeBtn.setAttribute("aria-label", label);
+    }
+  };
+
+  if (typeof window.electronAPI.onWindowMaximizeChanged === "function") {
+    window.electronAPI.onWindowMaximizeChanged(applyMaximizeState);
+  }
+
+  if (typeof window.electronAPI.isWindowMaximized === "function") {
+    window.electronAPI
+      .isWindowMaximized()
+      .then(applyMaximizeState)
+      .catch(() => {});
+  }
 }
 
 function initCompareComposerSizing() {
@@ -640,15 +700,6 @@ function ensureState(model) {
   return modelStates[model];
 }
 
-function stateToDotClass(state) {
-  if (!state) return "";
-  if (state.error) return "error";
-  if (state.loading) return "loading";
-  if (state.composerReady || state.manualOnly) return "ready";
-  if (state.initialized) return "loaded";
-  return "";
-}
-
 function getModelLabel(modelId) {
   const m = modelsById[modelId];
   if (m && typeof m.name === "string" && m.name.trim()) return m.name.trim();
@@ -832,14 +883,20 @@ function updateActiveTabUI(model) {
   });
 }
 
+function dotColorForState(model, state) {
+  if (!state) return brandColorForModel(model);
+  if (state.error) return ERROR_DOT_COLOR;
+  if (state.loading) return LOADING_DOT_COLOR;
+  // Ready / loaded / manual / idle all rest on the provider brand color.
+  return brandColorForModel(model);
+}
+
 function updateDot(model) {
   const state = ensureState(model);
-  const cls = stateToDotClass(state);
 
   for (const dot of document.querySelectorAll(`.status-dot[data-model="${model}"]`)) {
-    dot.classList.remove("loading", "ready", "loaded", "error");
-    if (cls) dot.classList.add(cls);
-    const state = ensureState(model);
+    dot.classList.toggle("loading", !!state.loading);
+    dot.style.background = dotColorForState(model, state);
     dot.title = state.error
       ? "Load failed"
       : state.loading
@@ -969,7 +1026,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireIPC();
   wireDotClicks();
 
-  initCompareModeButton();
+  initViewToggle();
+  initWindowControls();
   initCompareComposer();
   initCompareComposerSizing();
   initSetupOverlay();

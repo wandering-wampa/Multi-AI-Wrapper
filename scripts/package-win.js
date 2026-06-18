@@ -6,7 +6,7 @@ const { createPackagerOptions } = require("./package-common");
     const appPaths = await packager(createPackagerOptions({
       platform: "win32",
       arch: "x64",
-      icon: "assets/Multi-Ai-logo.ico"
+      icon: "assets/multi-ai-wrapper.ico"
     }));
 
     if (Array.isArray(appPaths) && appPaths.length) {
