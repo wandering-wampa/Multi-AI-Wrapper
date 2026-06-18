@@ -28,7 +28,7 @@ jobs:
         run: npm run package-mac
 
       - name: Upload macOS build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Multi-AI-Wrapper-mac
           path: dist/Multi-AI-Wrapper-v*/**
