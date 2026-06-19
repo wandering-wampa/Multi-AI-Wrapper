@@ -39,6 +39,34 @@ const APP_DISPLAY_NAME = "Multi-AI-Wrapper";
 const APP_ICON_PATH = path.join(__dirname, "assets", "multi-ai-wrapper.ico");
 const GITHUB_REPO_URL = "https://github.com/wandering-wampa/Multi-AI-Wrapper";
 
+// Only these schemes may be handed to the OS via shell.openExternal. Anything else
+// (file:, UNC/SMB \\host\share, ms-msdt:, etc.) can leak credentials or run local
+// handlers, so untrusted embedded pages must never reach those paths.
+const EXTERNAL_OPEN_ALLOWED_PROTOCOLS = new Set(["https:", "mailto:"]);
+
+function isSafeExternalUrl(target) {
+  if (typeof target !== "string" || !target.trim()) return false;
+  try {
+    return EXTERNAL_OPEN_ALLOWED_PROTOCOLS.has(new URL(target.trim()).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function openExternalSafe(target) {
+  if (!isSafeExternalUrl(target)) {
+    console.warn("Multi-AI-Wrapper: blocked openExternal for unsafe URL", target);
+    return false;
+  }
+  try {
+    shell.openExternal(target.trim());
+    return true;
+  } catch (err) {
+    console.warn("Multi-AI-Wrapper: shell.openExternal failed", err);
+    return false;
+  }
+}
+
 let mainWindow;
 let settingsWindow;
 let compareHistoryWindow;
@@ -838,11 +866,7 @@ function createModelView(modelName) {
   });
 
   wc.setWindowOpenHandler(({ url: target }) => {
-    try {
-      shell.openExternal(target);
-    } catch (err) {
-      console.warn("Multi-AI-Wrapper: shell.openExternal failed", err);
-    }
+    openExternalSafe(target);
     return { action: "deny" };
   });
 

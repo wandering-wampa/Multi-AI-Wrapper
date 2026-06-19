@@ -9,7 +9,9 @@
     "start": "node scripts/start-electron.js",
     "package-win": "node scripts/package-win.js",
     "package-mac": "node scripts/package-mac.js",
-    "package-linux": "node scripts/package-linux.js"
+    "package-linux": "node scripts/package-linux.js",
+    "checksums": "node scripts/checksums.js",
+    "clean": "node scripts/clean.js"
   },
   "devDependencies": {
     "electron": "^34.0.0",

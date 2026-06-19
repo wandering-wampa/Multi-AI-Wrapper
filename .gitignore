@@ -6,7 +6,11 @@ Thumbs.db
 Multi-AI-Wrapper.rar
 .dev-profile/
 .dev-profile-codex/
+.vscode/
 
 # Local session handoffs (wrap-up / pick-up) — not for GitHub
 docs/BRIEF.md
 docs/sessions/
+
+# Security review — documents unfixed vulnerabilities; keep private (public repo)
+docs/SECURITY-REVIEW.md

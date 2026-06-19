@@ -52,15 +52,32 @@ No API keys are required. Sign in to each provider inside the app.
 ### macOS
 
 1. Download the latest macOS release.
-2. Extract the ZIP.
-3. Open `Multi-AI-Wrapper-v<version>.app`.
-4. If Gatekeeper blocks the first launch, right-click the app and choose **Open**.
+2. (Recommended) Verify the download — see [Verifying your download](#verifying-your-download).
+3. Extract the ZIP.
+4. Open `Multi-AI-Wrapper-v<version>.app`.
+5. This is an **unsigned build** (the project has no Apple Developer ID), so Gatekeeper
+   will block the first launch. After verifying the checksum above, right-click the app
+   and choose **Open** to run it. macOS remembers this choice for future launches.
 
 ### Linux
 
 1. Download the latest Linux release.
 2. Extract the archive.
 3. Run the `Multi-AI-Wrapper-v<version>` binary from the extracted folder.
+
+### Verifying your download
+
+Releases are **not code-signed**, so each release publishes a `SHA256SUMS.txt` file
+listing the SHA-256 hash of every ZIP. Verifying the hash confirms your download matches
+what was published and was not tampered with in transit.
+
+Compare the hash of your downloaded ZIP against the matching line in `SHA256SUMS.txt`:
+
+- **Windows (PowerShell):** `Get-FileHash .\Multi-AI-Wrapper-v<version>-win32-x64.zip -Algorithm SHA256`
+- **macOS:** `shasum -a 256 -c SHA256SUMS.txt`
+- **Linux:** `sha256sum -c SHA256SUMS.txt`
+
+If the hashes do not match, do not run the app — re-download or report it.
 
 ## Platform notes
 
